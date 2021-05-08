@@ -17,6 +17,10 @@ if (skia_enable_skparagraph && skia_enable_skshaper && skia_use_icu &&
       "include",
       "utils",
     ]
+    defines = []
+    if (is_component_build) {
+      defines += [ "SKPARAGRAPH_DLL" ]
+    }
   }
 
   skia_component("skparagraph") {
@@ -27,6 +31,9 @@ if (skia_enable_skparagraph && skia_enable_skshaper && skia_use_icu &&
     deps = [
       "../..:skia",
       "../skshaper",
+    ]
+    defines = [
+      "SKPARAGRAPH_IMPLEMENTATION=1"
     ]
   }
 

@@ -5,6 +5,8 @@
 #include <map>
 #include "modules/skparagraph/include/TextStyle.h"
 
+#include "modules/skparagraph/include/ExportDefines.h"
+
 namespace skia {
 namespace textlayout {
 class StyleMetrics {

@@ -7,12 +7,14 @@
 #include "modules/skparagraph/include/ParagraphStyle.h"
 #include "modules/skparagraph/include/TextStyle.h"
 
+#include "modules/skparagraph/include/ExportDefines.h"
+
 class SkCanvas;
 
 namespace skia {
 namespace textlayout {
 
-class Paragraph {
+class SKPARAGRAPH_API Paragraph {
 
 public:
     Paragraph(ParagraphStyle style, sk_sp<FontCollection> fonts);

@@ -26,6 +26,8 @@ FontCollection::FontCollection()
         : fEnableFontFallback(true)
         , fDefaultFamilyNames({SkString(DEFAULT_FONT_FAMILY)}) { }
 
+FontCollection::~FontCollection() { }
+
 size_t FontCollection::getFontManagersCount() const { return this->getFontManagerOrder().size(); }
 
 void FontCollection::setAssetFontManager(sk_sp<SkFontMgr> font_manager) {

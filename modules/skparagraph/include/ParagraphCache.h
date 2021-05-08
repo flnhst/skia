@@ -8,6 +8,8 @@
 
 #define PARAGRAPH_CACHE_STATS
 
+#include "modules/skparagraph/include/ExportDefines.h"
+
 namespace skia {
 namespace textlayout {
 
@@ -27,7 +29,7 @@ class ParagraphCacheValue;
 
 bool operator==(const ParagraphCacheKey& a, const ParagraphCacheKey& b);
 
-class ParagraphCache {
+class SKPARAGRAPH_API ParagraphCache {
 public:
     ParagraphCache();
     ~ParagraphCache();

@@ -9,6 +9,8 @@
 #include <iterator>
 #include <limits>
 
+#include "modules/skparagraph/include/ExportDefines.h"
+
 namespace skia {
 namespace textlayout {
 

@@ -6,6 +6,7 @@ _include = get_path_info("include", "abspath")
 _utils = get_path_info("utils", "abspath")
 
 skparagraph_public = [
+  "$_include/ExportDefines.h",
   "$_include/ParagraphStyle.h",
   "$_include/TextStyle.h",
   "$_include/TextShadow.h",

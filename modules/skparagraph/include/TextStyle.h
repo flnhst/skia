@@ -15,6 +15,8 @@
 // TODO: Make it external so the other platforms (Android) could use it
 #define DEFAULT_FONT_FAMILY "sans-serif"
 
+#include "modules/skparagraph/include/ExportDefines.h"
+
 namespace skia {
 namespace textlayout {
 
@@ -145,7 +147,7 @@ struct PlaceholderStyle {
     SkScalar fBaselineOffset = 0;
 };
 
-class TextStyle {
+class SKPARAGRAPH_API TextStyle {
 public:
     TextStyle() = default;
     TextStyle(const TextStyle& other, bool placeholder);

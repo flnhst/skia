@@ -5,10 +5,12 @@
 #include "include/core/SkColor.h"
 #include "include/core/SkPoint.h"
 
+#include "modules/skparagraph/include/ExportDefines.h"
+
 namespace skia {
 namespace textlayout {
 
-class TextShadow {
+class SKPARAGRAPH_API TextShadow {
 public:
     SkColor fColor = SK_ColorBLACK;
     SkPoint fOffset;

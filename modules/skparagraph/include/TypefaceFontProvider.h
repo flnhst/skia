@@ -11,10 +11,12 @@
 #include "include/core/SkStream.h"
 #include "include/core/SkString.h"
 
+#include "modules/skparagraph/include/ExportDefines.h"
+
 namespace skia {
 namespace textlayout {
 
-class TypefaceFontStyleSet : public SkFontStyleSet {
+class SKPARAGRAPH_API TypefaceFontStyleSet : public SkFontStyleSet {
 public:
     explicit TypefaceFontStyleSet(const SkString& familyName);
 
@@ -33,7 +35,7 @@ private:
     SkString fAlias;
 };
 
-class TypefaceFontProvider : public SkFontMgr {
+class SKPARAGRAPH_API TypefaceFontProvider : public SkFontMgr {
 public:
     size_t registerTypeface(sk_sp<SkTypeface> typeface);
     size_t registerTypeface(sk_sp<SkTypeface> typeface, const SkString& alias);

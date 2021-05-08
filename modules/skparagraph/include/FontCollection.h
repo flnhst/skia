@@ -10,14 +10,17 @@
 #include "modules/skparagraph/include/ParagraphCache.h"
 #include "modules/skparagraph/include/TextStyle.h"
 
+#include "modules/skparagraph/include/ExportDefines.h"
+
 namespace skia {
 namespace textlayout {
 
 class TextStyle;
 class Paragraph;
-class FontCollection : public SkRefCnt {
+class SKPARAGRAPH_API FontCollection : public SkRefCnt {
 public:
     FontCollection();
+    virtual ~FontCollection();
 
     size_t getFontManagersCount() const;
 
