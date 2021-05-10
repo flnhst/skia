@@ -55,8 +55,8 @@ public:
     void updateFrom(const ParagraphImpl* paragraph, Entry* entry);
     void updateTo(ParagraphImpl* paragraph, const Entry* entry);
 
-     mutable SkMutex fParagraphMutex;
-     std::function<void(ParagraphImpl* impl, const char*, bool)> fChecker;
+    mutable SkMutex fParagraphMutex;
+    std::function<void(ParagraphImpl* impl, const char*, bool)> fChecker;
 
     static const int kMaxEntries = 128;
 

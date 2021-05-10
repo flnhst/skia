@@ -12,6 +12,17 @@ bool FontCollection::FamilyKey::operator==(const FontCollection::FamilyKey& othe
     return fFamilyNames == other.fFamilyNames && fFontStyle == other.fFontStyle;
 }
 
+FontCollection::FamilyKey::FamilyKey(const SkTArray<SkString>& familyNames, SkFontStyle style)
+        : fFamilyNames(familyNames), fFontStyle(style) {}
+
+FontCollection::FamilyKey::FamilyKey() {}
+
+FontCollection::FamilyKey::~FamilyKey() {}
+
+FontCollection::FamilyKey::Hasher::Hasher() {}
+
+FontCollection::FamilyKey::Hasher::~Hasher() {}
+
 size_t FontCollection::FamilyKey::Hasher::operator()(const FontCollection::FamilyKey& key) const {
     size_t hash = 0;
     for (const SkString& family : key.fFamilyNames) {
@@ -27,6 +38,10 @@ FontCollection::FontCollection()
         , fDefaultFamilyNames({SkString(DEFAULT_FONT_FAMILY)}) { }
 
 FontCollection::~FontCollection() { }
+
+sk_sp<FontCollection> FontCollection::Make() {
+    return sk_make_sp<FontCollection>();
+}
 
 size_t FontCollection::getFontManagersCount() const { return this->getFontManagerOrder().size(); }
 
@@ -49,7 +64,7 @@ void FontCollection::setDefaultFontManager(sk_sp<SkFontMgr> fontManager,
 }
 
 void FontCollection::setDefaultFontManager(sk_sp<SkFontMgr> fontManager,
-                                           const std::vector<SkString>& defaultFamilyNames) {
+                                           const SkTArray<SkString>& defaultFamilyNames) {
     fDefaultFontManager = std::move(fontManager);
     fDefaultFamilyNames = defaultFamilyNames;
 }
@@ -76,7 +91,7 @@ std::vector<sk_sp<SkFontMgr>> FontCollection::getFontManagerOrder() const {
     return order;
 }
 
-std::vector<sk_sp<SkTypeface>> FontCollection::findTypefaces(const std::vector<SkString>& familyNames, SkFontStyle fontStyle) {
+SkTArray<sk_sp<SkTypeface>> FontCollection::findTypefaces(const SkTArray<SkString>& familyNames, SkFontStyle fontStyle) {
     // Look inside the font collections cache first
     FamilyKey familyKey(familyNames, fontStyle);
     auto found = fTypefaces.find(familyKey);
@@ -84,7 +99,7 @@ std::vector<sk_sp<SkTypeface>> FontCollection::findTypefaces(const std::vector<S
         return *found;
     }
 
-    std::vector<sk_sp<SkTypeface>> typefaces;
+    SkTArray<sk_sp<SkTypeface>> typefaces;
     for (const SkString& familyName : familyNames) {
         sk_sp<SkTypeface> match = matchTypeface(familyName, fontStyle);
         if (match) {
@@ -173,6 +188,8 @@ void FontCollection::clearCaches() {
     fTypefaces.reset();
     SkShaper::PurgeCaches();
 }
+
+int FontCollection::sizeofFontCollection() { return sizeof(FontCollection); }
 
 }  // namespace textlayout
 }  // namespace skia

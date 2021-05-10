@@ -18,9 +18,9 @@ namespace textlayout {
 
 class SKPARAGRAPH_API ParagraphBuilder {
 public:
-    ParagraphBuilder(const ParagraphStyle&, sk_sp<FontCollection>) { }
+    ParagraphBuilder(const ParagraphStyle&, sk_sp<FontCollection>);
 
-    virtual ~ParagraphBuilder() = default;
+    virtual ~ParagraphBuilder();
 
     // Push a style to the stack. The corresponding text added with AddText will
     // use the top-most style.

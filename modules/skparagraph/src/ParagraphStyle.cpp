@@ -29,6 +29,10 @@ ParagraphStyle::ParagraphStyle() {
     fHintingIsOn = true;
 }
 
+ParagraphStyle::~ParagraphStyle() { }
+
+void ParagraphStyle::setTextStyle(const TextStyle& textStyle) { fDefaultTextStyle = textStyle; }
+
 TextAlign ParagraphStyle::effective_align() const {
     if (fTextAlign == TextAlign::kStart) {
         return (fTextDirection == TextDirection::kLtr) ? TextAlign::kLeft : TextAlign::kRight;
@@ -38,5 +42,10 @@ TextAlign ParagraphStyle::effective_align() const {
         return fTextAlign;
     }
 }
+
+int ParagraphStyle::sizeofParagraphStyle() {
+    return sizeof(ParagraphStyle);
+}
+
 }  // namespace textlayout
 }  // namespace skia

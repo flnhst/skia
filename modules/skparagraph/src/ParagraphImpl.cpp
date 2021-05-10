@@ -584,7 +584,7 @@ void ParagraphImpl::resolveStrut() {
         return;
     }
 
-    std::vector<sk_sp<SkTypeface>> typefaces = fFontCollection->findTypefaces(strutStyle.getFontFamilies(), strutStyle.getFontStyle());
+    SkTArray<sk_sp<SkTypeface>> typefaces = fFontCollection->findTypefaces(strutStyle.getFontFamilies(), strutStyle.getFontStyle());
     if (typefaces.empty()) {
         SkDEBUGF("Could not resolve strut font\n");
         return;
@@ -937,13 +937,16 @@ void ParagraphImpl::computeEmptyMetrics() {
 
 SkString ParagraphImpl::getEllipsis() const {
 
-    auto ellipsis8 = fParagraphStyle.getEllipsis();
-    auto ellipsis16 = fParagraphStyle.getEllipsisUtf16();
+    return fParagraphStyle.getEllipsis();
+    //auto ellipsis16 = fParagraphStyle.getEllipsisUtf16();
+    
+    /*
     if (!ellipsis8.isEmpty()) {
         return ellipsis8;
     } else {
         return fUnicode->convertUtf16ToUtf8(fParagraphStyle.getEllipsisUtf16());
     }
+    */
 }
 
 void ParagraphImpl::updateText(size_t from, SkString text) {

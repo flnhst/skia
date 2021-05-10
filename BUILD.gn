@@ -1517,7 +1517,7 @@ skia_static_library("pathkit") {
     "src/utils/SkDashPath.cpp",
     "src/utils/SkParse.cpp",
     "src/utils/SkParsePath.cpp",
-    "src/utils/SkUTF.cpp",
+    "src/utils/SkUTF.cpp"
   ]
 }
 

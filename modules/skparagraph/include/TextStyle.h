@@ -116,6 +116,9 @@ struct FontFeature {
     bool operator==(const FontFeature& that) const {
         return fName == that.fName && fValue == that.fValue;
     }
+    bool operator!=(const FontFeature& that) const {
+        return !operator==(that);
+    }
     SkString fName;
     int fValue;
 };
@@ -149,8 +152,14 @@ struct PlaceholderStyle {
 
 class SKPARAGRAPH_API TextStyle {
 public:
-    TextStyle() = default;
+    TextStyle();
+    TextStyle(const TextStyle& orig);
+    TextStyle(TextStyle&& orig);
     TextStyle(const TextStyle& other, bool placeholder);
+    virtual ~TextStyle();
+
+    TextStyle& operator=(const TextStyle& rhs);
+    TextStyle& operator=(TextStyle&& rhs);
 
     bool equals(const TextStyle& other) const;
     bool equalsByFonts(const TextStyle& that) const;
@@ -158,24 +167,18 @@ public:
     bool operator==(const TextStyle& rhs) const { return this->equals(rhs); }
 
     // Colors
-    SkColor getColor() const { return fColor; }
-    void setColor(SkColor color) { fColor = color; }
+    SkColor getColor() const;
+    void setColor(SkColor color);
 
-    bool hasForeground() const { return fHasForeground; }
-    SkPaint getForeground() const { return fForeground; }
-    void setForegroundColor(SkPaint paint) {
-        fHasForeground = true;
-        fForeground = std::move(paint);
-    }
-    void clearForegroundColor() { fHasForeground = false; }
+    bool hasForeground() const;
+    SkPaint getForeground() const;
+    void setForegroundColor(SkPaint paint);
+    void clearForegroundColor();
 
-    bool hasBackground() const { return fHasBackground; }
-    SkPaint getBackground() const { return fBackground; }
-    void setBackgroundColor(SkPaint paint) {
-        fHasBackground = true;
-        fBackground = std::move(paint);
-    }
-    void clearBackgroundColor() { fHasBackground = false; }
+    bool hasBackground() const;
+    SkPaint getBackground() const;
+    void setBackgroundColor(SkPaint paint);
+    void clearBackgroundColor();
 
     // Decorations
     Decoration getDecoration() const { return fDecoration; }
@@ -198,22 +201,22 @@ public:
 
     // Shadows
     size_t getShadowNumber() const { return fTextShadows.size(); }
-    std::vector<TextShadow> getShadows() const { return fTextShadows; }
+    SkTArray<TextShadow> getShadows() const { return fTextShadows; }
     void addShadow(TextShadow shadow) { fTextShadows.emplace_back(shadow); }
-    void resetShadows() { fTextShadows.clear(); }
+    void resetShadows() { fTextShadows.reset(); }
 
     // Font features
     size_t getFontFeatureNumber() const { return fFontFeatures.size(); }
-    std::vector<FontFeature> getFontFeatures() const { return fFontFeatures; }
+    SkTArray<FontFeature> getFontFeatures() const { return fFontFeatures; }
     void addFontFeature(const SkString& fontFeature, int value)
         { fFontFeatures.emplace_back(fontFeature, value); }
-    void resetFontFeatures() { fFontFeatures.clear(); }
+    void resetFontFeatures() { fFontFeatures.reset(); }
 
     SkScalar getFontSize() const { return fFontSize; }
     void setFontSize(SkScalar size) { fFontSize = size; }
 
-    const std::vector<SkString>& getFontFamilies() const { return fFontFamilies; }
-    void setFontFamilies(std::vector<SkString> families) {
+    const SkTArray<SkString>& getFontFamilies() const { return fFontFamilies; }
+    void setFontFamilies(SkTArray<SkString> families) {
         fFontFamilies = std::move(families);
     }
 
@@ -247,8 +250,12 @@ public:
     bool isPlaceholder() const { return fIsPlaceholder; }
     void setPlaceholder() { fIsPlaceholder = true; }
 
+    static int sizeofTextStyle();
+    static int sizeofVectorSkString();
+    static int sizeofVectorInt();
+
 private:
-    static const std::vector<SkString> kDefaultFontFamilies;
+    static const SkTArray<SkString> kDefaultFontFamilies;
 
     Decoration fDecoration = {
             TextDecoration::kNoDecoration,
@@ -262,7 +269,7 @@ private:
 
     SkFontStyle fFontStyle;
 
-    std::vector<SkString> fFontFamilies = kDefaultFontFamilies;
+    SkTArray<SkString> fFontFamilies = kDefaultFontFamilies;
 
     SkScalar fFontSize = 14.0;
     SkScalar fHeight = 1.0;
@@ -282,12 +289,12 @@ private:
     bool fHasForeground = false;
     SkPaint fForeground;
 
-    std::vector<TextShadow> fTextShadows;
+    SkTArray<TextShadow> fTextShadows;
 
     sk_sp<SkTypeface> fTypeface;
     bool fIsPlaceholder = false;
 
-    std::vector<FontFeature> fFontFeatures;
+    SkTArray<FontFeature> fFontFeatures;
 };
 
 typedef size_t TextIndex;
@@ -330,6 +337,8 @@ struct Placeholder {
     BlockRange fBlocksBefore;
     TextRange fTextBefore;
 };
+
+
 
 }  // namespace textlayout
 }  // namespace skia

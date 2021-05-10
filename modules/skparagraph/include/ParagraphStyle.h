@@ -23,8 +23,8 @@ namespace textlayout {
 struct SKPARAGRAPH_API StrutStyle {
     StrutStyle();
 
-    const std::vector<SkString>& getFontFamilies() const { return fFontFamilies; }
-    void setFontFamilies(std::vector<SkString> families) { fFontFamilies = std::move(families); }
+    const SkTArray<SkString>& getFontFamilies() const { return fFontFamilies; }
+    void setFontFamilies(SkTArray<SkString> families) { fFontFamilies = std::move(families); }
 
     SkFontStyle getFontStyle() const { return fFontStyle; }
     void setFontStyle(SkFontStyle fontStyle) { fFontStyle = fontStyle; }
@@ -64,7 +64,7 @@ struct SKPARAGRAPH_API StrutStyle {
 
 private:
 
-    std::vector<SkString> fFontFamilies;
+    SkTArray<SkString> fFontFamilies;
     SkFontStyle fFontStyle;
     SkScalar fFontSize;
     SkScalar fHeight;
@@ -79,11 +79,12 @@ private:
 
 struct SKPARAGRAPH_API ParagraphStyle {
     ParagraphStyle();
+    virtual ~ParagraphStyle();
 
     bool operator==(const ParagraphStyle& rhs) const {
         return this->fHeight == rhs.fHeight &&
                this->fEllipsis == rhs.fEllipsis &&
-               this->fEllipsisUtf16 == rhs.fEllipsisUtf16 &&
+               // this->fEllipsisUtf16 == rhs.fEllipsisUtf16 &&
                this->fTextDirection == rhs.fTextDirection && this->fTextAlign == rhs.fTextAlign &&
                this->fDefaultTextStyle == rhs.fDefaultTextStyle;
     }
@@ -92,7 +93,7 @@ struct SKPARAGRAPH_API ParagraphStyle {
     void setStrutStyle(StrutStyle strutStyle) { fStrutStyle = std::move(strutStyle); }
 
     const TextStyle& getTextStyle() const { return fDefaultTextStyle; }
-    void setTextStyle(const TextStyle& textStyle) { fDefaultTextStyle = textStyle; }
+    void setTextStyle(const TextStyle& textStyle);
 
     TextDirection getTextDirection() const { return fTextDirection; }
     void setTextDirection(TextDirection direction) { fTextDirection = direction; }
@@ -104,8 +105,8 @@ struct SKPARAGRAPH_API ParagraphStyle {
     void setMaxLines(size_t maxLines) { fLinesLimit = maxLines; }
 
     SkString getEllipsis() const { return fEllipsis; }
-    std::u16string getEllipsisUtf16() const { return fEllipsisUtf16; }
-    void setEllipsis(const std::u16string& ellipsis) {  fEllipsisUtf16 = ellipsis; }
+    //std::u16string getEllipsisUtf16() const { return fEllipsisUtf16; }
+    //void setEllipsis(const std::u16string& ellipsis) {  fEllipsisUtf16 = ellipsis; }
     void setEllipsis(const SkString& ellipsis) { fEllipsis = ellipsis; }
 
     SkScalar getHeight() const { return fHeight; }
@@ -117,12 +118,14 @@ struct SKPARAGRAPH_API ParagraphStyle {
     bool unlimited_lines() const {
         return fLinesLimit == std::numeric_limits<size_t>::max();
     }
-    bool ellipsized() const { return !fEllipsis.isEmpty() || !fEllipsisUtf16.empty(); }
+    bool ellipsized() const { return !fEllipsis.isEmpty() /*|| !fEllipsisUtf16.empty()*/; }
     TextAlign effective_align() const;
     bool hintingIsOn() const { return fHintingIsOn; }
     void turnHintingOff() { fHintingIsOn = false; }
     DrawOptions getDrawOptions() { return fDrawingOptions; }
     void setDrawOptions(DrawOptions value) { fDrawingOptions = value; }
+
+    static int sizeofParagraphStyle();
 
 private:
     StrutStyle fStrutStyle;
@@ -130,7 +133,7 @@ private:
     TextAlign fTextAlign;
     TextDirection fTextDirection;
     size_t fLinesLimit;
-    std::u16string fEllipsisUtf16;
+    //std::u16string fEllipsisUtf16;
     SkString fEllipsis;
     SkScalar fHeight;
     TextHeightBehavior fTextHeightBehavior;

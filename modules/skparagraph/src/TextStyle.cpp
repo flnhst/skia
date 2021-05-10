@@ -3,10 +3,22 @@
 #include "include/core/SkFontStyle.h"
 #include "modules/skparagraph/include/TextStyle.h"
 
+#include <iostream>
+
 namespace skia {
 namespace textlayout {
 
-const std::vector<SkString> TextStyle::kDefaultFontFamilies = { SkString(DEFAULT_FONT_FAMILY) };
+const SkTArray<SkString> TextStyle::kDefaultFontFamilies = { SkString(DEFAULT_FONT_FAMILY) };
+
+TextStyle::TextStyle() = default;
+
+TextStyle::~TextStyle() {}
+
+TextStyle& TextStyle::operator=(const TextStyle& rhs) = default;
+
+TextStyle::TextStyle(const TextStyle& orig) = default;
+
+TextStyle::TextStyle(TextStyle&& orig) = default;
 
 TextStyle::TextStyle(const TextStyle& other, bool placeholder) {
     fColor = other.fColor;
@@ -146,6 +158,32 @@ bool TextStyle::matchOneAttribute(StyleType styleType, const TextStyle& other) c
     }
 }
 
+SkColor TextStyle::getColor() const { return fColor; }
+
+void TextStyle::setColor(SkColor color) { fColor = color; }
+
+bool TextStyle::hasForeground() const { return fHasForeground; }
+
+SkPaint TextStyle::getForeground() const { return fForeground; }
+
+void TextStyle::setForegroundColor(SkPaint paint) {
+    fHasForeground = true;
+    fForeground = std::move(paint);
+}
+
+void TextStyle::clearForegroundColor() { fHasForeground = false; }
+
+bool TextStyle::hasBackground() const { return fHasBackground; }
+
+SkPaint TextStyle::getBackground() const { return fBackground; }
+
+void TextStyle::setBackgroundColor(SkPaint paint) {
+    fHasBackground = true;
+    fBackground = std::move(paint);
+}
+
+void TextStyle::clearBackgroundColor() { fHasBackground = false; }
+
 void TextStyle::getFontMetrics(SkFontMetrics* metrics) const {
     SkFont font(fTypeface, fFontSize);
     font.setEdging(SkFont::Edging::kAntiAlias);
@@ -171,6 +209,21 @@ bool PlaceholderStyle::equals(const PlaceholderStyle& other) const {
            fBaseline == other.fBaseline &&
            (fAlignment != PlaceholderAlignment::kBaseline ||
             nearlyEqual(fBaselineOffset, other.fBaselineOffset));
+}
+
+int TextStyle::sizeofTextStyle()
+{
+    return sizeof(TextStyle);
+}
+
+int TextStyle::sizeofVectorSkString()
+{
+    return sizeof(std::vector<SkString>);
+}
+
+int TextStyle::sizeofVectorInt()
+{
+    return sizeof(std::vector<int>);
 }
 
 }  // namespace textlayout

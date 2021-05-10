@@ -22,6 +22,8 @@ public:
     FontCollection();
     virtual ~FontCollection();
 
+    static sk_sp<FontCollection> Make();
+
     size_t getFontManagersCount() const;
 
     void setAssetFontManager(sk_sp<SkFontMgr> fontManager);
@@ -29,11 +31,11 @@ public:
     void setTestFontManager(sk_sp<SkFontMgr> fontManager);
     void setDefaultFontManager(sk_sp<SkFontMgr> fontManager);
     void setDefaultFontManager(sk_sp<SkFontMgr> fontManager, const char defaultFamilyName[]);
-    void setDefaultFontManager(sk_sp<SkFontMgr> fontManager, const std::vector<SkString>& defaultFamilyNames);
+    void setDefaultFontManager(sk_sp<SkFontMgr> fontManager, const SkTArray<SkString>& defaultFamilyNames);
 
     sk_sp<SkFontMgr> getFallbackManager() const { return fDefaultFontManager; }
 
-    std::vector<sk_sp<SkTypeface>> findTypefaces(const std::vector<SkString>& familyNames, SkFontStyle fontStyle);
+    SkTArray<sk_sp<SkTypeface>> findTypefaces(const SkTArray<SkString>& familyNames, SkFontStyle fontStyle);
 
     sk_sp<SkTypeface> defaultFallback(SkUnichar unicode, SkFontStyle fontStyle, const SkString& locale);
     sk_sp<SkTypeface> defaultFallback();
@@ -46,35 +48,41 @@ public:
 
     void clearCaches();
 
+    static int sizeofFontCollection();
+
 private:
     std::vector<sk_sp<SkFontMgr>> getFontManagerOrder() const;
 
     sk_sp<SkTypeface> matchTypeface(const SkString& familyName, SkFontStyle fontStyle);
 
-    struct FamilyKey {
-        FamilyKey(const std::vector<SkString>& familyNames, SkFontStyle style)
-                : fFamilyNames(familyNames), fFontStyle(style) {}
+    struct SKPARAGRAPH_API FamilyKey {
+        FamilyKey(const SkTArray<SkString>& familyNames, SkFontStyle style);
 
-        FamilyKey() {}
+        FamilyKey();
+        
+        virtual ~FamilyKey();
 
-        std::vector<SkString> fFamilyNames;
+        SkTArray<SkString> fFamilyNames;
         SkFontStyle fFontStyle;
 
         bool operator==(const FamilyKey& other) const;
 
-        struct Hasher {
+        struct SKPARAGRAPH_API Hasher {
+            Hasher();
+            virtual ~Hasher();
+            
             size_t operator()(const FamilyKey& key) const;
         };
     };
 
     bool fEnableFontFallback;
-    SkTHashMap<FamilyKey, std::vector<sk_sp<SkTypeface>>, FamilyKey::Hasher> fTypefaces;
+    SkTHashMap<FamilyKey, SkTArray<sk_sp<SkTypeface>>, FamilyKey::Hasher> fTypefaces;
     sk_sp<SkFontMgr> fDefaultFontManager;
     sk_sp<SkFontMgr> fAssetFontManager;
     sk_sp<SkFontMgr> fDynamicFontManager;
     sk_sp<SkFontMgr> fTestFontManager;
 
-    std::vector<SkString> fDefaultFamilyNames;
+    SkTArray<SkString> fDefaultFamilyNames;
     ParagraphCache fParagraphCache;
 };
 }  // namespace textlayout

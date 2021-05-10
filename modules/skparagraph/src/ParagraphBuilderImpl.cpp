@@ -16,6 +16,10 @@
 namespace skia {
 namespace textlayout {
 
+ParagraphBuilder::ParagraphBuilder(const ParagraphStyle&, sk_sp<FontCollection>) { }
+
+ParagraphBuilder::~ParagraphBuilder() = default;
+
 std::unique_ptr<ParagraphBuilder> ParagraphBuilder::make(
         const ParagraphStyle& style, sk_sp<FontCollection> fontCollection) {
     return ParagraphBuilderImpl::make(style, fontCollection);
