@@ -155,9 +155,11 @@ struct PlaceholderStyle {
 
 class SKPARAGRAPH_API TextStyle {
 public:
-    TextStyle() = default;
-    TextStyle(const TextStyle& other) = default;
-    TextStyle& operator=(const TextStyle& other) = default;
+    TextStyle();
+    virtual ~TextStyle();
+    TextStyle(const TextStyle& other);
+    TextStyle& operator=(const TextStyle& other);
+    TextStyle(TextStyle&& other);
 
     TextStyle cloneForPlaceholder();
 

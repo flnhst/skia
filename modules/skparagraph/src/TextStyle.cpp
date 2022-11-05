@@ -15,9 +15,9 @@ TextStyle::TextStyle() = default;
 
 TextStyle::~TextStyle() {}
 
-TextStyle& TextStyle::operator=(const TextStyle& rhs) = default;
-
 TextStyle::TextStyle(const TextStyle& orig) = default;
+
+TextStyle& TextStyle::operator=(const TextStyle& rhs) = default;
 
 TextStyle::TextStyle(TextStyle&& orig) = default;
 
