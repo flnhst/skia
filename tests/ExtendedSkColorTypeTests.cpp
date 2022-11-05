@@ -5,16 +5,34 @@
  * found in the LICENSE file.
  */
 
+#include "include/core/SkAlphaType.h"
 #include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkColorSpace.h"
+#include "include/core/SkColorType.h"
 #include "include/core/SkImage.h"
+#include "include/core/SkImageInfo.h"
+#include "include/core/SkRefCnt.h"
 #include "include/core/SkSurface.h"
+#include "include/core/SkTypes.h"
+#include "include/gpu/GrBackendSurface.h"
 #include "include/gpu/GrDirectContext.h"
+#include "include/gpu/GrTypes.h"
+#include "include/private/SkImageInfoPriv.h"
 #include "src/core/SkAutoPixmapStorage.h"
-#include "src/gpu/GrPixmap.h"
-
+#include "tests/CtsEnforcement.h"
 #include "tests/Test.h"
 #include "tests/TestUtils.h"
 #include "tools/ToolUtils.h"
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <functional>
+#include <initializer_list>
+
+class SkPixmap;
+struct GrContextOptions;
 
 static constexpr int kSize = 32;
 
@@ -206,10 +224,15 @@ static void gpu_tests(GrDirectContext* dContext,
                                                         GrRenderable::kNo, GrProtected::kNo,
                                                         markFinished, &finishedBECreate);
         } else {
-            backendTex = dContext->createBackendTexture(kSize, kSize, test.fColorType,
-                                                        SkColors::kWhite, GrMipmapped::kNo,
-                                                        GrRenderable::kNo, GrProtected::kNo,
-                                                        markFinished, &finishedBECreate);
+            backendTex = dContext->createBackendTexture(kSize,
+                                                        kSize,
+                                                        test.fColorType,
+                                                        SkColors::kWhite,
+                                                        GrMipmapped::kNo,
+                                                        GrRenderable::kNo,
+                                                        GrProtected::kNo,
+                                                        markFinished,
+                                                        &finishedBECreate);
         }
         REPORTER_ASSERT(reporter, backendTex.isValid());
         dContext->submit();
@@ -298,15 +321,18 @@ static void gpu_tests(GrDirectContext* dContext,
 }
 
 DEF_TEST(ExtendedSkColorTypeTests_raster, reporter) {
-    for (size_t i = 0; i < SK_ARRAY_COUNT(gTests); ++i) {
+    for (size_t i = 0; i < std::size(gTests); ++i) {
         raster_tests(reporter, gTests[i]);
     }
 }
 
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ExtendedSkColorTypeTests_gpu, reporter, ctxInfo) {
+DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(ExtendedSkColorTypeTests_gpu,
+                                       reporter,
+                                       ctxInfo,
+                                       CtsEnforcement::kApiLevel_T) {
     auto context = ctxInfo.directContext();
 
-    for (size_t i = 0; i < SK_ARRAY_COUNT(gTests); ++i) {
+    for (size_t i = 0; i < std::size(gTests); ++i) {
         gpu_tests(context, reporter, gTests[i]);
     }
 }

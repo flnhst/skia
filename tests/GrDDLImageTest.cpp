@@ -5,13 +5,27 @@
  * found in the LICENSE file.
  */
 
+#include "include/core/SkAlphaType.h"
 #include "include/core/SkBitmap.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkColorType.h"
 #include "include/core/SkImage.h"
+#include "include/core/SkImageInfo.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkRefCnt.h"
 #include "include/core/SkSurface.h"
 #include "include/core/SkSurfaceCharacterization.h"
+#include "include/core/SkTypes.h"
+#include "include/gpu/GrBackendSurface.h"
+#include "include/gpu/GrDirectContext.h"
+#include "include/gpu/GrTypes.h"
+#include "tests/CtsEnforcement.h"
 #include "tests/Test.h"
 
-DEF_GPUTEST(GrDDLImage_MakeSubset, reporter, options) {
+class GrRecordingContext;
+struct GrContextOptions;
+
+DEF_GANESH_TEST(GrDDLImage_MakeSubset, reporter, options, CtsEnforcement::kApiLevel_T) {
     sk_gpu_test::GrContextFactory factory(options);
     for (int ct = 0; ct < sk_gpu_test::GrContextFactory::kContextTypeCnt; ++ct) {
         auto contextType = static_cast<sk_gpu_test::GrContextFactory::ContextType>(ct);
@@ -43,9 +57,11 @@ DEF_GPUTEST(GrDDLImage_MakeSubset, reporter, options) {
         auto surf = SkSurface::MakeRenderTarget(dContext, SkBudgeted::kNo, ii);
         SkSurfaceCharacterization sc;
         REPORTER_ASSERT(reporter, surf->characterize(&sc));
-        GrBackendTexture tex =
-                dContext->createBackendTexture(ii.width(), ii.height(), ii.colorType(),
-                                               GrMipmapped(sc.isMipMapped()), GrRenderable::kYes);
+        GrBackendTexture tex = dContext->createBackendTexture(ii.width(),
+                                                              ii.height(),
+                                                              ii.colorType(),
+                                                              GrMipmapped(sc.isMipMapped()),
+                                                              GrRenderable::kYes);
         auto gpuImage = SkImage::MakeFromTexture(dContext, tex, kTopLeft_GrSurfaceOrigin,
                                                  ii.colorType(), ii.alphaType(),
                                                  ii.refColorSpace());

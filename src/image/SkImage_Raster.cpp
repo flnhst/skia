@@ -7,6 +7,7 @@
 
 #include "include/core/SkBitmap.h"
 #include "include/core/SkCanvas.h"
+#include "include/core/SkColorSpace.h"
 #include "include/core/SkData.h"
 #include "include/core/SkPixelRef.h"
 #include "include/core/SkSurface.h"
@@ -20,9 +21,21 @@
 #include "src/shaders/SkBitmapProcShader.h"
 
 #if SK_SUPPORT_GPU
-#include "src/gpu/SkGr.h"
-#include "src/gpu/effects/GrBicubicEffect.h"
-#include "src/gpu/effects/GrTextureEffect.h"
+#include "src/gpu/ganesh/GrRecordingContextPriv.h"
+#include "src/gpu/ganesh/SkGr.h"
+#include "src/gpu/ganesh/effects/GrBicubicEffect.h"
+#include "src/gpu/ganesh/effects/GrTextureEffect.h"
+#endif
+
+#ifdef SK_GRAPHITE_ENABLED
+#include "include/gpu/graphite/GraphiteTypes.h"
+#include "include/gpu/graphite/Recorder.h"
+#include "src/gpu/graphite/Buffer.h"
+#include "src/gpu/graphite/Caps.h"
+#include "src/gpu/graphite/CommandBuffer.h"
+#include "src/gpu/graphite/RecorderPriv.h"
+#include "src/gpu/graphite/TextureUtils.h"
+#include "src/gpu/graphite/UploadTask.h"
 #endif
 
 // fixes https://bug.skia.org/5096
@@ -39,8 +52,8 @@ public:
         const int maxDimension = SK_MaxS32 >> 2;
 
         // TODO(mtklein): eliminate anything here that setInfo() has already checked.
-        SkBitmap dummy;
-        if (!dummy.setInfo(info, rowBytes)) {
+        SkBitmap b;
+        if (!b.setInfo(info, rowBytes)) {
             return false;
         }
 
@@ -123,13 +136,20 @@ public:
     SkMipmap* onPeekMips() const override { return fBitmap.fMips.get(); }
 
     sk_sp<SkImage> onMakeWithMipmaps(sk_sp<SkMipmap> mips) const override {
-        auto img = new SkImage_Raster(fBitmap);
+        // It's dangerous to have two SkBitmaps that share a SkPixelRef but have different SkMipmaps
+        // since various caches key on SkPixelRef's generation ID. Also, SkPixelRefs that back
+        // SkSurfaces are marked "temporarily immutable" and making an image that uses the same
+        // SkPixelRef can interact badly with SkSurface/SkImage copy-on-write. So we just always
+        // make a copy with a new ID.
+        static auto constexpr kCopyMode = SkCopyPixelsMode::kAlways_SkCopyPixelsMode;
+        sk_sp<SkImage> img = SkMakeImageFromRasterBitmap(fBitmap, kCopyMode);
+        auto imgRaster = static_cast<SkImage_Raster*>(img.get());
         if (mips) {
-            img->fBitmap.fMips = std::move(mips);
+            imgRaster->fBitmap.fMips = std::move(mips);
         } else {
-            img->fBitmap.fMips.reset(SkMipmap::Build(fBitmap.pixmap(), nullptr));
+            imgRaster->fBitmap.fMips.reset(SkMipmap::Build(fBitmap.pixmap(), nullptr));
         }
-        return sk_sp<SkImage>(img);
+        return img;
     }
 
 private:
@@ -144,6 +164,10 @@ private:
                                                                const SkMatrix&,
                                                                const SkRect*,
                                                                const SkRect*) const override;
+#endif
+#ifdef SK_GRAPHITE_ENABLED
+    sk_sp<SkImage> onMakeTextureImage(skgpu::graphite::Recorder*,
+                                      RequiredImageProperties) const override;
 #endif
 
     SkBitmap fBitmap;
@@ -212,9 +236,11 @@ bool SkImage_Raster::onPinAsTexture(GrRecordingContext* rContext) const {
     } else {
         SkASSERT(fPinnedCount == 0);
         SkASSERT(fPinnedUniqueID == 0);
-        std::tie(fPinnedView, fPinnedColorType) = GrMakeCachedBitmapProxyView(rContext,
-                                                                              fBitmap,
-                                                                              GrMipmapped::kNo);
+        std::tie(fPinnedView, fPinnedColorType) =
+                GrMakeCachedBitmapProxyView(rContext,
+                                            fBitmap,
+                                            /*label=*/"SkImageRaster_PinAsTexture",
+                                            GrMipmapped::kNo);
         if (!fPinnedView) {
             fPinnedColorType = GrColorType::kUnknown;
             return false;
@@ -396,7 +422,9 @@ sk_sp<SkImage> SkImage_Raster::onMakeColorTypeAndColorSpace(SkColorType targetCT
     SkAssertResult(fBitmap.peekPixels(&src));
 
     SkBitmap dst;
-    dst.allocPixels(fBitmap.info().makeColorType(targetCT).makeColorSpace(targetCS));
+    if (!dst.tryAllocPixels(fBitmap.info().makeColorType(targetCT).makeColorSpace(targetCS))) {
+        return nullptr;
+    }
 
     SkAssertResult(dst.writePixels(src));
     dst.setImmutable();
@@ -418,17 +446,33 @@ std::tuple<GrSurfaceProxyView, GrColorType> SkImage_Raster::onAsView(
         GrMipmapped mipmapped,
         GrImageTexGenPolicy policy) const {
     if (fPinnedView) {
+        // We ignore the mipmap request here. If the pinned view isn't mipmapped then we will
+        // fallback to bilinear. The pin API is used by Android Framework which does not expose
+        // mipmapping . Moreover, we're moving towards requiring that images be made with mip levels
+        // if mipmapping is desired (skbug.com/10411)
+        mipmapped = GrMipmapped::kNo;
         if (policy != GrImageTexGenPolicy::kDraw) {
-            return {CopyView(rContext, fPinnedView, mipmapped, policy), fPinnedColorType};
-        }
-        if (mipmapped == GrMipmapped::kYes) {
-            auto view = FindOrMakeCachedMipmappedView(rContext, fPinnedView, fPinnedUniqueID);
-            return {std::move(view), fPinnedColorType};
+            return {CopyView(rContext,
+                             fPinnedView,
+                             mipmapped,
+                             policy,
+                             /*label=*/"TextureForImageRasterWithPolicyNotEqualKDraw"),
+                    fPinnedColorType};
         }
         return {fPinnedView, fPinnedColorType};
     }
     if (policy == GrImageTexGenPolicy::kDraw) {
-        return GrMakeCachedBitmapProxyView(rContext, fBitmap, mipmapped);
+        // If the draw doesn't require mipmaps but this SkImage has them go ahead and make a
+        // mipmapped texture. There are three reasons for this:
+        // 1) Avoiding another texture creation if a later draw requires mipmaps.
+        // 2) Ensuring we upload the bitmap's levels instead of generating on the GPU from the base.
+        if (this->hasMipmaps()) {
+            mipmapped = GrMipmapped::kYes;
+        }
+        return GrMakeCachedBitmapProxyView(rContext,
+                                           fBitmap,
+                                           /*label=*/"TextureForImageRasterWithPolicyEqualKDraw",
+                                           mipmapped);
     }
     auto budgeted = (policy == GrImageTexGenPolicy::kNew_Uncached_Unbudgeted)
             ? SkBudgeted::kNo
@@ -456,5 +500,17 @@ std::unique_ptr<GrFragmentProcessor> SkImage_Raster::onAsFragmentProcessor(
                                          m,
                                          subset,
                                          domain);
+}
+#endif
+
+#ifdef SK_GRAPHITE_ENABLED
+sk_sp<SkImage> SkImage_Raster::onMakeTextureImage(skgpu::graphite::Recorder* recorder,
+                                                  RequiredImageProperties requiredProps) const {
+    return skgpu::graphite::MakeFromBitmap(recorder,
+                                           this->imageInfo().colorInfo(),
+                                           fBitmap,
+                                           this->refMips(),
+                                           SkBudgeted::kNo,
+                                           requiredProps);
 }
 #endif

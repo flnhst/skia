@@ -8,6 +8,7 @@
 #include "include/private/SkTArray.h"
 #include "modules/skparagraph/include/DartTypes.h"
 #include "modules/skparagraph/include/Metrics.h"
+#include "modules/skparagraph/include/ParagraphPainter.h"
 #include "modules/skparagraph/include/TextStyle.h"
 #include "modules/skparagraph/src/Run.h"
 
@@ -16,7 +17,6 @@
 #include <memory>
 #include <vector>
 
-class SkCanvas;
 class SkString;
 
 namespace skia {
@@ -33,6 +33,7 @@ public:
       size_t size;
       SkScalar fTextShift; // Shifts the text inside the run so it's placed at the right position
       SkRect clip;
+      SkScalar fExcludedTrailingSpaces;
       bool clippingNeeded;
     };
 
@@ -47,27 +48,28 @@ public:
              SkVector offset,
              SkVector advance,
              BlockRange blocks,
+             TextRange textExcludingSpaces,
              TextRange text,
-             TextRange textWithSpaces,
+             TextRange textIncludingNewlines,
              ClusterRange clusters,
              ClusterRange clustersWithGhosts,
              SkScalar widthWithSpaces,
              InternalLineMetrics sizes);
 
-    TextRange trimmedText() const { return fTextRange; }
-    TextRange textWithSpaces() const { return fTextWithWhitespacesRange; }
+    TextRange trimmedText() const { return fTextExcludingSpaces; }
+    TextRange textWithNewlines() const { return fTextIncludingNewlines; }
+    TextRange text() const { return fText; }
     ClusterRange clusters() const { return fClusterRange; }
     ClusterRange clustersWithSpaces() { return fGhostClusterRange; }
     Run* ellipsis() const { return fEllipsis.get(); }
     InternalLineMetrics sizes() const { return fSizes; }
-    bool empty() const { return fTextRange.empty(); }
+    bool empty() const { return fTextExcludingSpaces.empty(); }
 
-    SkScalar spacesWidth() { return fWidthWithSpaces - width(); }
+    SkScalar spacesWidth() const { return fWidthWithSpaces - width(); }
     SkScalar height() const { return fAdvance.fY; }
     SkScalar width() const {
         return fAdvance.fX + (fEllipsis != nullptr ? fEllipsis->fAdvance.fX : 0);
     }
-    SkScalar shift() const { return fShift; }
     SkVector offset() const;
 
     SkScalar alphabeticBaseline() const { return fSizes.alphabeticBaseline(); }
@@ -84,7 +86,7 @@ public:
     void iterateThroughClustersInGlyphsOrder(bool reverse, bool includeGhosts, const ClustersVisitor& visitor) const;
 
     void format(TextAlign align, SkScalar maxWidth);
-    SkRect paint(SkCanvas* canvas, SkScalar x, SkScalar y);
+    void paint(ParagraphPainter* painter, SkScalar x, SkScalar y);
     void visit(SkScalar x, SkScalar y);
     void ensureTextBlobCachePopulated();
 
@@ -96,8 +98,8 @@ public:
     void setMaxRunMetrics(const InternalLineMetrics& metrics) { fMaxRunMetrics = metrics; }
     InternalLineMetrics getMaxRunMetrics() const { return fMaxRunMetrics; }
 
-    bool isFirstLine();
-    bool isLastLine();
+    bool isFirstLine() const;
+    bool isLastLine() const;
     void getRectsForRange(TextRange textRange, RectHeightStyle rectHeightStyle, RectWidthStyle rectWidthStyle, std::vector<TextBox>& boxes);
     void getRectsForPlaceholders(std::vector<TextBox>& boxes);
     PositionWithAffinity getGlyphPositionAtCoordinate(SkScalar dx);
@@ -116,24 +118,42 @@ public:
     SkScalar metricsWithoutMultiplier(TextHeightBehavior correction);
     void shiftVertically(SkScalar shift) { fOffset.fY += shift; }
 
+    void setAscentStyle(LineMetricStyle style) { fAscentStyle = style; }
+    void setDescentStyle(LineMetricStyle style) { fDescentStyle = style; }
+
     bool endsWithHardLineBreak() const;
 
 private:
-
-    std::unique_ptr<Run> shapeEllipsis(const SkString& ellipsis, const Run& run);
+    std::unique_ptr<Run> shapeEllipsis(const SkString& ellipsis, const Cluster* cluster);
     void justify(SkScalar maxWidth);
 
     void buildTextBlob(TextRange textRange, const TextStyle& style, const ClipContext& context);
-    void paintBackground(SkCanvas* canvas, SkScalar x, SkScalar y, TextRange textRange, const TextStyle& style, const ClipContext& context) const;
-    SkRect paintShadow(SkCanvas* canvas, SkScalar x, SkScalar y, TextRange textRange, const TextStyle& style, const ClipContext& context) const;
-    void paintDecorations(SkCanvas* canvas, SkScalar x, SkScalar y, TextRange textRange, const TextStyle& style, const ClipContext& context) const;
+    void paintBackground(ParagraphPainter* painter,
+                         SkScalar x,
+                         SkScalar y,
+                         TextRange textRange,
+                         const TextStyle& style,
+                         const ClipContext& context) const;
+    void paintShadow(ParagraphPainter* painter,
+                     SkScalar x,
+                     SkScalar y,
+                     TextRange textRange,
+                     const TextStyle& style,
+                     const ClipContext& context) const;
+    void paintDecorations(ParagraphPainter* painter,
+                          SkScalar x,
+                          SkScalar y,
+                          TextRange textRange,
+                          const TextStyle& style,
+                          const ClipContext& context) const;
 
     void shiftCluster(const Cluster* cluster, SkScalar shift, SkScalar prevShift);
 
     ParagraphImpl* fOwner;
     BlockRange fBlockRange;
-    TextRange fTextRange;
-    TextRange fTextWithWhitespacesRange;
+    TextRange fTextExcludingSpaces;
+    TextRange fText;
+    TextRange fTextIncludingNewlines;
     ClusterRange fClusterRange;
     ClusterRange fGhostClusterRange;
     // Avoid the malloc/free in the common case of one run per line
@@ -153,11 +173,11 @@ private:
     LineMetricStyle fDescentStyle;
 
     struct TextBlobRecord {
-        void paint(SkCanvas* canvas, SkScalar x, SkScalar y);
+        void paint(ParagraphPainter* painter, SkScalar x, SkScalar y);
 
         sk_sp<SkTextBlob> fBlob;
         SkPoint fOffset = SkPoint::Make(0.0f, 0.0f);
-        SkPaint fPaint;
+        ParagraphPainter::SkPaintOrID fPaint;
         SkRect fBounds = SkRect::MakeEmpty();
         bool fClippingNeeded = false;
         SkRect fClipRect = SkRect::MakeEmpty();

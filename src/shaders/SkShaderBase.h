@@ -12,41 +12,28 @@
 #include "include/core/SkPaint.h"
 #include "include/core/SkSamplingOptions.h"
 #include "include/core/SkShader.h"
+#include "include/core/SkSurfaceProps.h"
 #include "include/private/SkNoncopyable.h"
 #include "src/core/SkEffectPriv.h"
 #include "src/core/SkMask.h"
 #include "src/core/SkTLazy.h"
 #include "src/core/SkVM_fwd.h"
 
-#if SK_SUPPORT_GPU
-#include "src/gpu/GrFPArgs.h"
-#endif
-
 class GrFragmentProcessor;
+struct GrFPArgs;
 class SkArenaAlloc;
 class SkColorSpace;
 class SkImage;
 struct SkImageInfo;
 class SkPaint;
+class SkPaintParamsKeyBuilder;
+class SkPipelineDataGatherer;
 class SkRasterPipeline;
 class SkRuntimeEffect;
+class SkKeyContext;
+class SkStageUpdater;
 
-/**
- *  Shaders can optionally return a subclass of this when appending their stages.
- *  Doing so tells the caller that the stages can be reused with different CTMs (but nothing
- *  else can change), by calling the updater's udpate() method before each use.
- *
- *  This can be a perf-win bulk draws like drawAtlas and drawVertices, where most of the setup
- *  (i.e. uniforms) are constant, and only something small is changing (i.e. matrices). This
- *  reuse skips the cost of computing the stages (and/or avoids having to allocate a separate
- *  shader for each small draw.
- */
-class SkStageUpdater {
-public:
-    virtual ~SkStageUpdater() {}
-
-    virtual bool SK_WARN_UNUSED_RESULT update(const SkMatrix& ctm, const SkMatrix* localM) = 0;
-};
+class SkUpdatableShader;
 
 class SkShaderBase : public SkShader {
 public:
@@ -61,7 +48,60 @@ public:
      */
     virtual bool isConstant() const { return false; }
 
-    const SkMatrix& getLocalMatrix() const { return fLocalMatrix; }
+    enum class GradientType {
+        kNone,
+        kColor,
+        kLinear,
+        kRadial,
+        kSweep,
+        kConical
+    };
+
+    /**
+     *  If the shader subclass can be represented as a gradient, asGradient
+     *  returns the matching GradientType enum (or GradientType::kNone if it
+     *  cannot). Also, if info is not null, asGradient populates info with
+     *  the relevant (see below) parameters for the gradient.  fColorCount
+     *  is both an input and output parameter.  On input, it indicates how
+     *  many entries in fColors and fColorOffsets can be used, if they are
+     *  non-NULL.  After asGradient has run, fColorCount indicates how
+     *  many color-offset pairs there are in the gradient.  If there is
+     *  insufficient space to store all of the color-offset pairs, fColors
+     *  and fColorOffsets will not be altered.  fColorOffsets specifies
+     *  where on the range of 0 to 1 to transition to the given color.
+     *  The meaning of fPoint and fRadius is dependent on the type of gradient.
+     *
+     *  None:
+     *      info is ignored.
+     *  Color:
+     *      fColorOffsets[0] is meaningless.
+     *  Linear:
+     *      fPoint[0] and fPoint[1] are the end-points of the gradient
+     *  Radial:
+     *      fPoint[0] and fRadius[0] are the center and radius
+     *  Conical:
+     *      fPoint[0] and fRadius[0] are the center and radius of the 1st circle
+     *      fPoint[1] and fRadius[1] are the center and radius of the 2nd circle
+     *  Sweep:
+     *      fPoint[0] is the center of the sweep.
+     */
+    struct GradientInfo {
+        int         fColorCount    = 0;        //!< In-out parameter, specifies passed size
+                                               //   of fColors/fColorOffsets on input, and
+                                               //   actual number of colors/offsets on
+                                               //   output.
+        SkColor*    fColors        = nullptr;  //!< The colors in the gradient.
+        SkScalar*   fColorOffsets  = nullptr;  //!< The unit offset for color transitions.
+        SkPoint     fPoint[2];                 //!< Type specific, see above.
+        SkScalar    fRadius[2];                //!< Type specific, see above.
+        SkTileMode  fTileMode;
+        uint32_t    fGradientFlags = 0;        //!< see SkGradientShader::Flags
+    };
+
+    virtual GradientType asGradient(GradientInfo* info    = nullptr,
+                                    SkMatrix* localMatrix = nullptr) const {
+        return GradientType::kNone;
+    }
 
     enum Flags {
         //!< set if all of the colors will be opaque
@@ -84,11 +124,12 @@ public:
      */
     struct ContextRec {
         ContextRec(const SkPaint& paint, const SkMatrix& matrix, const SkMatrix* localM,
-                   SkColorType dstColorType, SkColorSpace* dstColorSpace)
+                   SkColorType dstColorType, SkColorSpace* dstColorSpace, SkSurfaceProps props)
             : fMatrix(&matrix)
             , fLocalMatrix(localM)
             , fDstColorType(dstColorType)
-            , fDstColorSpace(dstColorSpace) {
+            , fDstColorSpace(dstColorSpace)
+            , fProps(props) {
                 fPaintAlpha = paint.getAlpha();
                 fPaintDither = paint.isDither();
             }
@@ -97,6 +138,7 @@ public:
         const SkMatrix* fLocalMatrix;      // optional local matrix
         SkColorType     fDstColorType;     // the color type of the dest surface
         SkColorSpace*   fDstColorSpace;    // the color space of the dest surface (if any)
+        SkSurfaceProps  fProps;            // props of the dest surface
         SkAlpha         fPaintAlpha;
         bool            fPaintDither;
 
@@ -180,14 +222,8 @@ public:
     bool appendStages(const SkStageRec&) const;
 
     bool SK_WARN_UNUSED_RESULT computeTotalInverse(const SkMatrix& ctm,
-                                                   const SkMatrix* outerLocalMatrix,
+                                                   const SkMatrix* localMatrix,
                                                    SkMatrix* totalInverse) const;
-
-    // Returns the total local matrix for this shader:
-    //
-    //   M = postLocalMatrix x shaderLocalMatrix x preLocalMatrix
-    //
-    SkTCopyOnFirstWrite<SkMatrix> totalLocalMatrix(const SkMatrix* preLocalMatrix) const;
 
     virtual SkImage* onIsAImage(SkMatrix*, SkTileMode[2]) const {
         return nullptr;
@@ -195,7 +231,7 @@ public:
 
     virtual SkRuntimeEffect* asRuntimeEffect() const { return nullptr; }
 
-    static Type GetFlattenableType() { return kSkShaderBase_Type; }
+    static Type GetFlattenableType() { return kSkShader_Type; }
     Type getFlattenableType() const override { return GetFlattenableType(); }
 
     static sk_sp<SkShaderBase> Deserialize(const void* data, size_t size,
@@ -211,6 +247,9 @@ public:
      */
     virtual sk_sp<SkShader> makeAsALocalMatrixShader(SkMatrix* localMatrix) const;
 
+    SkUpdatableShader* updatableShader(SkArenaAlloc* alloc) const;
+    virtual SkUpdatableShader* onUpdatableShader(SkArenaAlloc* alloc) const;
+
     SkStageUpdater* appendUpdatableStages(const SkStageRec& rec) const {
         return this->onAppendUpdatableStages(rec);
     }
@@ -220,8 +259,30 @@ public:
                         const SkMatrixProvider&, const SkMatrix* localM, const SkColorInfo& dst,
                         skvm::Uniforms* uniforms, SkArenaAlloc* alloc) const;
 
+
+#ifdef SK_ENABLE_SKSL
+    /**
+        Add implementation details, for the specified backend, of this SkShader to the
+        provided key.
+
+        @param keyContext backend context for key creation
+        @param builder    builder for creating the key for this SkShader
+        @param gatherer   if non-null, storage for this shader's data
+    */
+    virtual void addToKey(const SkKeyContext& keyContext,
+                          SkPaintParamsKeyBuilder* builder,
+                          SkPipelineDataGatherer* gatherer) const;
+#endif
+
+    static SkMatrix ConcatLocalMatrices(const SkMatrix& parentLM, const SkMatrix& childLM) {
+#if defined(SK_BUILD_FOR_ANDROID_FRAMEWORK)  // b/256873449
+        return SkMatrix::Concat(childLM, parentLM);
+#endif
+        return SkMatrix::Concat(parentLM, childLM);
+    }
+
 protected:
-    SkShaderBase(const SkMatrix* localMatrix = nullptr);
+    SkShaderBase();
 
     void flatten(SkWriteBuffer&) const override;
 
@@ -248,15 +309,37 @@ protected:
     static skvm::Coord ApplyMatrix(skvm::Builder*, const SkMatrix&, skvm::Coord, skvm::Uniforms*);
 
 private:
-    // This is essentially const, but not officially so it can be modified in constructors.
-    SkMatrix fLocalMatrix;
-
     virtual skvm::Color onProgram(skvm::Builder*,
                                   skvm::Coord device, skvm::Coord local, skvm::Color paint,
                                   const SkMatrixProvider&, const SkMatrix* localM,
                                   const SkColorInfo& dst, skvm::Uniforms*, SkArenaAlloc*) const = 0;
 
     using INHERITED = SkShader;
+};
+
+/**
+ *  Shaders can optionally return a subclass of this when appending their stages.
+ *  Doing so tells the caller that the stages can be reused with different CTMs (but nothing
+ *  else can change), by calling the updater's update() method before each use.
+ *
+ *  This can be a perf-win bulk draws like drawAtlas and drawVertices, where most of the setup
+ *  (i.e. uniforms) are constant, and only something small is changing (i.e. matrices). This
+ *  reuse skips the cost of computing the stages (and/or avoids having to allocate a separate
+ *  shader for each small draw.
+ */
+class SkStageUpdater {
+public:
+    virtual ~SkStageUpdater() {}
+    virtual bool SK_WARN_UNUSED_RESULT update(const SkMatrix& ctm) const = 0;
+};
+
+// TODO: use the SkStageUpdater as an interface until all the code is converted over to use
+//       SkUpdatableShader.
+class SkUpdatableShader : public SkShaderBase, public SkStageUpdater {
+private:
+    // For serialization.  This will never be called.
+    Factory getFactory() const override { return nullptr; }
+    const char* getTypeName() const override { return nullptr; }
 };
 
 inline SkShaderBase* as_SB(SkShader* shader) {
@@ -270,5 +353,10 @@ inline const SkShaderBase* as_SB(const SkShader* shader) {
 inline const SkShaderBase* as_SB(const sk_sp<SkShader>& shader) {
     return static_cast<SkShaderBase*>(shader.get());
 }
+
+void SkRegisterColor4ShaderFlattenable();
+void SkRegisterColorShaderFlattenable();
+void SkRegisterComposeShaderFlattenable();
+void SkRegisterEmptyShaderFlattenable();
 
 #endif // SkShaderBase_DEFINED

@@ -5,13 +5,19 @@
  * found in the LICENSE file.
  */
 
+#include "include/core/SkMatrix.h"
+#include "include/core/SkPoint.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkTypes.h"
 #include "include/utils/SkRandom.h"
 #include "src/core/SkGeometry.h"
 #include "src/core/SkPointPriv.h"
 #include "tests/Test.h"
 
 #include <array>
-#include <numeric>
+#include <cmath>
+#include <cstdlib>
+#include <limits>
 
 static bool nearly_equal(const SkPoint& a, const SkPoint& b) {
     return SkScalarNearlyEqual(a.fX, b.fX) && SkScalarNearlyEqual(a.fY, b.fY);
@@ -33,18 +39,20 @@ static void testChopCubic(skiatest::Reporter* reporter) {
     SkScalar tValues[3];
     // make sure we don't assert internally
     int count = SkChopCubicAtMaxCurvature(src, dst, tValues);
-    if (false) { // avoid bit rot, suppress warning
+    if ((false)) { // avoid bit rot, suppress warning
         REPORTER_ASSERT(reporter, count);
     }
     // Make sure src and dst can be the same pointer.
-    SkPoint pts[7];
-    for (int i = 0; i < 7; ++i) {
-        pts[i].set(i, i);
-    }
-    SkChopCubicAt(pts, pts, .5f);
-    for (int i = 0; i < 7; ++i) {
-        REPORTER_ASSERT(reporter, pts[i].fX == pts[i].fY);
-        REPORTER_ASSERT(reporter, pts[i].fX == i * .5f);
+    {
+        SkPoint pts[7];
+        for (int i = 0; i < 7; ++i) {
+            pts[i].set(i, i);
+        }
+        SkChopCubicAt(pts, pts, .5f);
+        for (int i = 0; i < 7; ++i) {
+            REPORTER_ASSERT(reporter, pts[i].fX == pts[i].fY);
+            REPORTER_ASSERT(reporter, pts[i].fX == i * .5f);
+        }
     }
 
     static const float chopTs[] = {
@@ -55,16 +63,16 @@ static void testChopCubic(skiatest::Reporter* reporter) {
 
     // Ensure an odd number of T values so we exercise the single chop code at the end of
     // SkChopCubicAt form multiple T.
-    static_assert(SK_ARRAY_COUNT(chopTs) % 2 == 1);
-    static_assert(SK_ARRAY_COUNT(ones) % 2 == 1);
+    static_assert(std::size(chopTs) % 2 == 1);
+    static_assert(std::size(ones) % 2 == 1);
 
     SkRandom rand;
     for (int iterIdx = 0; iterIdx < 5; ++iterIdx) {
         SkPoint pts[4] = {{rand.nextF(), rand.nextF()}, {rand.nextF(), rand.nextF()},
                           {rand.nextF(), rand.nextF()}, {rand.nextF(), rand.nextF()}};
 
-        SkPoint allChops[4 + SK_ARRAY_COUNT(chopTs)*3];
-        SkChopCubicAt(pts, allChops, chopTs, SK_ARRAY_COUNT(chopTs));
+        SkPoint allChops[4 + std::size(chopTs)*3];
+        SkChopCubicAt(pts, allChops, chopTs, std::size(chopTs));
         int i = 3;
         for (float chopT : chopTs) {
             // Ensure we chop at approximately the correct points when we chop an entire list.
@@ -103,13 +111,13 @@ static void testChopCubic(skiatest::Reporter* reporter) {
         }
 
         // Now test what happens when SkChopCubicAt does 0/0 and gets NaN values.
-        SkPoint oneChops[4 + SK_ARRAY_COUNT(ones)*3];
-        SkChopCubicAt(pts, oneChops, ones, SK_ARRAY_COUNT(ones));
+        SkPoint oneChops[4 + std::size(ones)*3];
+        SkChopCubicAt(pts, oneChops, ones, std::size(ones));
         REPORTER_ASSERT(reporter, oneChops[0] == pts[0]);
         REPORTER_ASSERT(reporter, oneChops[1] == pts[1]);
         REPORTER_ASSERT(reporter, oneChops[2] == pts[2]);
-        for (size_t i = 3; i < SK_ARRAY_COUNT(oneChops); ++i) {
-            REPORTER_ASSERT(reporter, oneChops[i] == pts[3]);
+        for (size_t index = 3; index < std::size(oneChops); ++index) {
+            REPORTER_ASSERT(reporter, oneChops[index] == pts[3]);
         }
     }
 }
@@ -191,7 +199,7 @@ static void test_quad_tangents(skiatest::Reporter* reporter) {
         {10, 20}, {15, 25}, {20, 30},
         {10, 20}, {20, 30}, {20, 30},
     };
-    int count = (int) SK_ARRAY_COUNT(pts) / 3;
+    int count = (int) std::size(pts) / 3;
     for (int index = 0; index < count; ++index) {
         SkConic conic(&pts[index * 3], 0.707f);
         SkVector start = SkEvalQuadTangentAt(&pts[index * 3], 0);
@@ -211,7 +219,7 @@ static void test_conic_tangents(skiatest::Reporter* reporter) {
         { 10, 20}, {15, 25}, {20, 30},
         { 10, 20}, {20, 30}, {20, 30}
     };
-    int count = (int) SK_ARRAY_COUNT(pts) / 3;
+    int count = (int) std::size(pts) / 3;
     for (int index = 0; index < count; ++index) {
         SkConic conic(&pts[index * 3], 0.707f);
         SkVector start = conic.evalTangentAt(0);
@@ -267,7 +275,7 @@ static void test_cubic_tangents(skiatest::Reporter* reporter) {
         { 10, 20}, {15, 25}, {20, 30}, {30, 40},
         { 10, 20}, {20, 30}, {30, 40}, {30, 40},
     };
-    int count = (int) SK_ARRAY_COUNT(pts) / 4;
+    int count = (int) std::size(pts) / 4;
     for (int index = 0; index < count; ++index) {
         SkConic conic(&pts[index * 3], 0.707f);
         SkVector start, mid, end;
@@ -470,7 +478,7 @@ static void test_chop_quad_at_midtangent(skiatest::Reporter* reporter, const SkP
 static void test_chop_cubic_at_midtangent(skiatest::Reporter* reporter, const SkPoint pts[4],
                                           SkCubicType cubicType) {
     constexpr float kTolerance = 1e-3f;
-    int n = SK_ARRAY_COUNT(kSkewMatrices);
+    int n = std::size(kSkewMatrices);
     if (cubicType == SkCubicType::kLocalCusp || cubicType == SkCubicType::kLineOrPoint) {
         // FP precision isn't always enough to get the exact correct T value of the mid-tangent on
         // cusps and lines. Only test the identity matrix and the matrix with all 1's.

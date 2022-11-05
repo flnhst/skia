@@ -5,25 +5,45 @@
  * found in the LICENSE file.
  */
 
-#include "tests/TestUtils.h"
-
+#include "include/core/SkAlphaType.h"
+#include "include/core/SkBitmap.h"
+#include "include/core/SkColorSpace.h"
+#include "include/core/SkColorType.h"
+#include "include/core/SkData.h"
+#include "include/core/SkImageInfo.h"
+#include "include/core/SkPixmap.h"
+#include "include/core/SkSize.h"
+#include "include/core/SkStream.h"
+#include "include/core/SkString.h"
 #include "include/encode/SkPngEncoder.h"
+#include "include/gpu/GrBackendSurface.h"
+#include "include/gpu/GrDirectContext.h"
+#include "include/gpu/GrRecordingContext.h"
+#include "include/private/SkTemplates.h"
+#include "include/private/SkTo.h"
+#include "include/private/gpu/ganesh/GrTypesPriv.h"
 #include "include/utils/SkBase64.h"
 #include "src/core/SkAutoPixmapStorage.h"
-#include "src/core/SkUtils.h"
-#include "src/gpu/GrDirectContextPriv.h"
-#include "src/gpu/GrDrawingManager.h"
-#include "src/gpu/GrGpu.h"
-#include "src/gpu/GrImageInfo.h"
-#include "src/gpu/GrRecordingContextPriv.h"
-#include "src/gpu/GrSurfaceContext.h"
-#include "src/gpu/GrSurfaceProxy.h"
-#include "src/gpu/GrTextureProxy.h"
-#include "src/gpu/SkGr.h"
+#include "src/gpu/ganesh/GrCaps.h"
+#include "src/gpu/ganesh/GrDataUtils.h"
+#include "src/gpu/ganesh/GrDirectContextPriv.h"
+#include "src/gpu/ganesh/GrImageInfo.h"
+#include "src/gpu/ganesh/GrRecordingContextPriv.h"
+#include "src/gpu/ganesh/GrSurfaceProxy.h"
+#include "src/gpu/ganesh/GrSurfaceProxyView.h"
+#include "src/gpu/ganesh/SkGr.h"
+#include "src/gpu/ganesh/SurfaceContext.h"
+#include "src/utils/SkCharToGlyphCache.h"
+#include "tests/Test.h"
+#include "tests/TestUtils.h"
+
+#include <cmath>
+#include <cstdlib>
+#include <utility>
 
 void TestReadPixels(skiatest::Reporter* reporter,
                     GrDirectContext* dContext,
-                    GrSurfaceContext* srcContext,
+                    skgpu::v1::SurfaceContext* srcContext,
                     uint32_t expectedPixelValues[],
                     const char* testName) {
     int pixelCnt = srcContext->width() * srcContext->height();
@@ -50,7 +70,7 @@ void TestReadPixels(skiatest::Reporter* reporter,
 
 void TestWritePixels(skiatest::Reporter* reporter,
                      GrDirectContext* dContext,
-                     GrSurfaceContext* dstContext,
+                     skgpu::v1::SurfaceContext* dstContext,
                      bool expectedToWork,
                      const char* testName) {
     SkImageInfo ii = SkImageInfo::Make(dstContext->dimensions(),
@@ -87,14 +107,18 @@ void TestCopyFromSurface(skiatest::Reporter* reporter,
                          GrColorType colorType,
                          uint32_t expectedPixelValues[],
                          const char* testName) {
-    auto copy = GrSurfaceProxy::Copy(dContext, std::move(proxy), origin, GrMipmapped::kNo,
-                                     SkBackingFit::kExact, SkBudgeted::kYes);
+    auto copy = GrSurfaceProxy::Copy(dContext,
+                                     std::move(proxy),
+                                     origin,
+                                     GrMipmapped::kNo,
+                                     SkBackingFit::kExact,
+                                     SkBudgeted::kYes,
+                                     /*label=*/"CopyFromSurface_Test");
     SkASSERT(copy && copy->asTextureProxy());
     auto swizzle = dContext->priv().caps()->getReadSwizzle(copy->backendFormat(), colorType);
     GrSurfaceProxyView view(std::move(copy), origin, swizzle);
-    auto dstContext = GrSurfaceContext::Make(dContext,
-                                             std::move(view),
-                                             {colorType, kPremul_SkAlphaType, nullptr});
+    auto dstContext = dContext->priv().makeSC(std::move(view),
+                                              {colorType, kPremul_SkAlphaType, nullptr});
     SkASSERT(dstContext);
 
     TestReadPixels(reporter, dContext, dstContext.get(), expectedPixelValues, testName);
@@ -130,7 +154,7 @@ bool BipmapToBase64DataURI(const SkBitmap& bitmap, SkString* dst) {
     }
 
     dst->resize(len);
-    SkBase64::Encode(pngData->data(), pngData->size(), dst->writable_str());
+    SkBase64::Encode(pngData->data(), pngData->size(), dst->data());
     dst->prepend("data:image/png;base64,");
     return true;
 }
@@ -160,8 +184,8 @@ bool ComparePixels(const GrCPixmap& a,
                    const float tolRGBA[4],
                    std::function<ComparePixmapsErrorReporter>& error) {
     if (a.dimensions() != b.dimensions()) {
-        static constexpr float kDummyDiffs[4] = {};
-        error(-1, -1, kDummyDiffs);
+        static constexpr float kEmptyDiffs[4] = {};
+        error(-1, -1, kEmptyDiffs);
         return false;
     }
 
@@ -255,7 +279,28 @@ void CheckSingleThreadedProxyRefs(skiatest::Reporter* reporter,
     REPORTER_ASSERT(reporter, actualBackingRefs == expectedBackingRefs);
 }
 
-#include "src/utils/SkCharToGlyphCache.h"
+std::unique_ptr<skgpu::v1::SurfaceContext> CreateSurfaceContext(GrRecordingContext* rContext,
+                                                                const GrImageInfo& info,
+                                                                SkBackingFit fit,
+                                                                GrSurfaceOrigin origin,
+                                                                GrRenderable renderable,
+                                                                int sampleCount,
+                                                                GrMipmapped mipmapped,
+                                                                GrProtected isProtected,
+                                                                SkBudgeted budgeted) {
+    GrBackendFormat format = rContext->priv().caps()->getDefaultBackendFormat(info.colorType(),
+                                                                              renderable);
+    return rContext->priv().makeSC(info,
+                                   format,
+                                   /*label=*/{},
+                                   fit,
+                                   origin,
+                                   renderable,
+                                   sampleCount,
+                                   mipmapped,
+                                   isProtected,
+                                   budgeted);
+}
 
 static SkGlyphID hash_to_glyph(uint32_t value) {
     return SkToU16(((value >> 16) ^ value) & 0xFFFF);

@@ -39,22 +39,29 @@ private:
     SkRect UIArea() const;
     void renderUI();
 
+    class TransformTracker;
+    class SlotManagerWrapper;
+
     const SkString                     fPath;
 
     sk_sp<skottie::Animation>          fAnimation;
     skottie::Animation::Builder::Stats fAnimationStats;
     sksg::InvalidationController       fInvalController;
+    sk_sp<TransformTracker>            fTransformTracker;
+    std::unique_ptr<SlotManagerWrapper>fSlotManagerWrapper;
     std::vector<float>                 fFrameTimes;
-    SkSize                             fWinSize            = SkSize::MakeEmpty();
-    double                             fTimeBase           = 0,
-                                       fFrameRate          = 0;
-    const char*                        fFrameRateLabel     = nullptr;
-    float                              fCurrentFrame       = 0;
-    bool                               fShowAnimationInval = false,
-                                       fShowAnimationStats = false,
-                                       fShowUI             = false,
-                                       fDraggingProgress   = false,
-                                       fPreferGlyphPaths   = false;
+    SkSize                             fWinSize              = SkSize::MakeEmpty();
+    double                             fTimeBase             = 0,
+                                       fFrameRate            = 0;
+    const char*                        fFrameRateLabel       = nullptr;
+    float                              fCurrentFrame         = 0;
+    bool                               fShowAnimationInval   = false,
+                                       fShowAnimationStats   = false,
+                                       fShowUI               = false,
+                                       fShowTrackerUI        = false,
+                                       fShowSlotManager      = false,
+                                       fDraggingProgress     = false,
+                                       fPreferGlyphPaths     = false;
 
     using INHERITED = Slide;
 };

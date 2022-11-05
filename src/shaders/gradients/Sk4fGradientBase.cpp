@@ -11,16 +11,14 @@
 
 namespace {
 
-Sk4f pack_color(const SkColor4f& c4f, bool premul, const Sk4f& component_scale) {
-    Sk4f pm4f = premul
-        ? Sk4f::Load(c4f.premul().vec())
-        : Sk4f::Load(c4f.vec());
+skvx::float4 pack_color(const SkPMColor4f& c4f, bool premul, const skvx::float4& component_scale) {
+    auto pm4f = skvx::float4::Load(c4f.vec());
 
     if (premul) {
         // If the stops are premul, we clamp them to gamut now.
         // If the stops are unpremul, the colors will eventually go through Sk4f_toL32(),
         // which ends up clamping to gamut then.
-        pm4f = Sk4f::Max(0, Sk4f::Min(pm4f, pm4f[3]));
+        pm4f = max(0, min(pm4f, pm4f[3]));
     }
 
     return pm4f * component_scale;
@@ -36,8 +34,8 @@ public:
         SkASSERT(shader.fColorCount > 0);
     }
 
-    void iterate(const SkColor4f* colors,
-                 std::function<void(const SkColor4f&, const SkColor4f&,
+    void iterate(const SkPMColor4f* colors,
+                 std::function<void(const SkPMColor4f&, const SkPMColor4f&,
                                     SkScalar, SkScalar)> func) const {
         if (!fShader.fOrigPos) {
             this->iterateImplicitPos(colors, func);
@@ -54,7 +52,7 @@ public:
 
             const SkScalar currPos = fShader.fOrigPos[curr];
             if (currPos != prevPos) {
-                SkASSERT((currPos - prevPos > 0) == (fAdvance > 0));
+                SkASSERT((currPos > prevPos) == (fAdvance > 0));
                 func(colors[prev], colors[curr], prevPos, currPos);
             }
 
@@ -64,8 +62,8 @@ public:
     }
 
 private:
-    void iterateImplicitPos(const SkColor4f* colors,
-                            std::function<void(const SkColor4f&, const SkColor4f&,
+    void iterateImplicitPos(const SkPMColor4f* colors,
+                            std::function<void(const SkPMColor4f&, const SkPMColor4f&,
                                                SkScalar, SkScalar)> func) const {
         // When clients don't provide explicit color stop positions (fPos == nullptr),
         // the color stops are distributed evenly across the unit interval
@@ -96,12 +94,13 @@ private:
 };
 
 void addMirrorIntervals(const SkGradientShaderBase& shader,
-                        const SkColor4f* colors,
-                        const Sk4f& componentScale,
+                        const SkPMColor4f* colors,
+                        const skvx::float4& componentScale,
                         bool premulColors, bool reverse,
                         Sk4fGradientIntervalBuffer::BufferType* buffer) {
     const IntervalIterator iter(shader, reverse);
-    iter.iterate(colors, [&] (const SkColor4f& c0, const SkColor4f& c1, SkScalar t0, SkScalar t1) {
+    iter.iterate(colors, [&] (const SkPMColor4f& c0, const SkPMColor4f& c1,
+                              SkScalar t0, SkScalar t1) {
         SkASSERT(buffer->empty() || buffer->back().fT1 == 2 - t0);
 
         const auto mirror_t0 = 2 - t0;
@@ -117,10 +116,10 @@ void addMirrorIntervals(const SkGradientShaderBase& shader,
 
 } // anonymous namespace
 
-Sk4fGradientInterval::Sk4fGradientInterval(const Sk4f& c0, SkScalar t0,
-                                           const Sk4f& c1, SkScalar t1)
-    : fT0(t0)
-    , fT1(t1) {
+Sk4fGradientInterval::Sk4fGradientInterval(const skvx::float4& c0, SkScalar t0,
+                                           const skvx::float4& c1, SkScalar t1)
+        : fT0(t0)
+        , fT1(t1) {
     SkASSERT(t0 != t1);
     // Either p0 or p1 can be (-)inf for synthetic clamp edge intervals.
     SkASSERT(SkScalarIsFinite(t0) || SkScalarIsFinite(t1));
@@ -128,10 +127,10 @@ Sk4fGradientInterval::Sk4fGradientInterval(const Sk4f& c0, SkScalar t0,
     const auto dt = t1 - t0;
 
     // Clamp edge intervals are always zero-ramp.
-    SkASSERT(SkScalarIsFinite(dt) || (c0 == c1).allTrue());
-    SkASSERT(SkScalarIsFinite(t0) || (c0 == c1).allTrue());
-    const Sk4f   dc = SkScalarIsFinite(dt) ? (c1 - c0) / dt : 0;
-    const Sk4f bias = c0 - (SkScalarIsFinite(t0) ? t0 * dc : 0);
+    SkASSERT(SkScalarIsFinite(dt) || all(c0 == c1));
+    SkASSERT(SkScalarIsFinite(t0) || all(c0 == c1));
+    const auto   dc = SkScalarIsFinite(dt) ? (c1 - c0) / dt : 0;
+    const auto bias = c0 - (SkScalarIsFinite(t0) ? t0 * dc : 0);
 
     bias.store(fCb.vec());
     dc.store(fCg.vec());
@@ -187,33 +186,32 @@ void Sk4fGradientIntervalBuffer::init(const SkGradientShaderBase& shader, SkColo
 
     fIntervals.reset();
 
-    const Sk4f componentScale = premulColors
-        ? Sk4f(alpha)
-        : Sk4f(1.0f, 1.0f, 1.0f, alpha);
+    const skvx::float4 componentScale = premulColors ? skvx::float4(alpha)
+                                                     : skvx::float4(1.0f, 1.0f, 1.0f, alpha);
     const int first_index = reverse ? count - 1 : 0;
     const int last_index = count - 1 - first_index;
     const SkScalar first_pos = reverse ? SK_Scalar1 : 0;
     const SkScalar last_pos = SK_Scalar1 - first_pos;
 
-    // Transform all of the colors to destination color space
-    SkColor4fXformer xformedColors(shader.fOrigColors4f, count, shader.fColorSpace.get(), dstCS);
+    // Transform all of the colors to destination color space, possibly premul'd
+    SkColor4fXformer xformedColors(shader.fOrigColors4f, count, shader.fInterpolation,
+                                   shader.fColorSpace.get(), dstCS);
+    const SkPMColor4f* colors = xformedColors.fColors.begin();
 
     if (tileMode == SkTileMode::kClamp) {
         // synthetic edge interval: -/+inf .. P0
-        const Sk4f clamp_color = pack_color(xformedColors.fColors[first_index],
-                                            premulColors, componentScale);
+        const auto clamp_color = pack_color(colors[first_index], premulColors, componentScale);
         const SkScalar clamp_pos = reverse ? SK_ScalarInfinity : SK_ScalarNegativeInfinity;
         fIntervals.emplace_back(clamp_color, clamp_pos,
                                 clamp_color, first_pos);
     } else if (tileMode == SkTileMode::kMirror && reverse) {
         // synthetic mirror intervals injected before main intervals: (2 .. 1]
-        addMirrorIntervals(shader, xformedColors.fColors, componentScale, premulColors, false,
-                           &fIntervals);
+        addMirrorIntervals(shader, colors, componentScale, premulColors, false, &fIntervals);
     }
 
     const IntervalIterator iter(shader, reverse);
-    iter.iterate(xformedColors.fColors,
-                 [&] (const SkColor4f& c0, const SkColor4f& c1, SkScalar t0, SkScalar t1) {
+    iter.iterate(colors,
+                 [&] (const SkPMColor4f& c0, const SkPMColor4f& c1, SkScalar t0, SkScalar t1) {
         SkASSERT(fIntervals.empty() || fIntervals.back().fT1 == t0);
 
         fIntervals.emplace_back(pack_color(c0, premulColors, componentScale), t0,
@@ -222,15 +220,13 @@ void Sk4fGradientIntervalBuffer::init(const SkGradientShaderBase& shader, SkColo
 
     if (tileMode == SkTileMode::kClamp) {
         // synthetic edge interval: Pn .. +/-inf
-        const Sk4f clamp_color = pack_color(xformedColors.fColors[last_index],
-                                            premulColors, componentScale);
+        const auto clamp_color = pack_color(colors[last_index], premulColors, componentScale);
         const SkScalar clamp_pos = reverse ? SK_ScalarNegativeInfinity : SK_ScalarInfinity;
         fIntervals.emplace_back(clamp_color, last_pos,
                                 clamp_color, clamp_pos);
     } else if (tileMode == SkTileMode::kMirror && !reverse) {
         // synthetic mirror intervals injected after main intervals: [1 .. 2)
-        addMirrorIntervals(shader, xformedColors.fColors, componentScale, premulColors, true,
-                           &fIntervals);
+        addMirrorIntervals(shader, colors, componentScale, premulColors, true, &fIntervals);
     }
 }
 
@@ -302,9 +298,7 @@ GradientShaderBase4fContext::GradientShaderBase4fContext(const SkGradientShaderB
         fFlags |= kOpaqueAlpha_Flag;
     }
 
-    fColorsArePremul =
-        (shader.fGradFlags & SkGradientShader::kInterpolateColorsInPremul_Flag)
-        || shader.fColorsAreOpaque;
+    fColorsArePremul = shader.interpolateInPremul() || shader.fColorsAreOpaque;
 }
 
 bool SkGradientShaderBase::

@@ -5,25 +5,38 @@
  * found in the LICENSE file.
  */
 
-#include "src/images/SkImageEncoderPriv.h"
+#include "include/core/SkTypes.h"
 
 #ifdef SK_ENCODE_JPEG
 
-#include "include/core/SkStream.h"
+#include "include/core/SkAlphaType.h"
+#include "include/core/SkColorType.h"
+#include "include/core/SkData.h"
+#include "include/core/SkImageInfo.h"
+#include "include/core/SkPixmap.h"
+#include "include/core/SkRefCnt.h"
+#include "include/encode/SkEncoder.h"
 #include "include/encode/SkJpegEncoder.h"
-#include "include/private/SkColorData.h"
-#include "include/private/SkImageInfoPriv.h"
+#include "include/private/SkNoncopyable.h"
 #include "include/private/SkTemplates.h"
+#include "src/codec/SkJpegPriv.h"
 #include "src/core/SkMSAN.h"
 #include "src/images/SkImageEncoderFns.h"
+#include "src/images/SkImageEncoderPriv.h"
 #include "src/images/SkJPEGWriteUtility.h"
 
-#include <stdio.h>
+#include <csetjmp>
+#include <cstdint>
+#include <cstring>
+#include <memory>
+#include <utility>
 
 extern "C" {
     #include "jpeglib.h"
-    #include "jerror.h"
+    #include "jmorecfg.h"
 }
+
+class SkWStream;
 
 class SkJpegEncoderMgr final : SkNoncopyable {
 public:
@@ -184,7 +197,8 @@ std::unique_ptr<SkEncoder> SkJpegEncoder::Make(SkWStream* dst, const SkPixmap& s
     jpeg_set_quality(encoderMgr->cinfo(), options.fQuality, TRUE);
     jpeg_start_compress(encoderMgr->cinfo(), TRUE);
 
-    sk_sp<SkData> icc = icc_from_color_space(src.info());
+    sk_sp<SkData> icc =
+            icc_from_color_space(src.info(), options.fICCProfile, options.fICCProfileDescription);
     if (icc) {
         // Create a contiguous block of memory with the icc signature followed by the profile.
         sk_sp<SkData> markerData =

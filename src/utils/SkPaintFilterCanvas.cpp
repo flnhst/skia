@@ -7,11 +7,27 @@
 
 #include "include/utils/SkPaintFilterCanvas.h"
 
+#include "include/core/SkBlendMode.h"
+#include "include/core/SkMatrix.h"
 #include "include/core/SkPaint.h"
 #include "include/core/SkPixmap.h"
-#include "include/core/SkSurface.h"
-#include "src/core/SkCanvasPriv.h"
-#include "src/core/SkTLazy.h"
+#include "include/core/SkPoint.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkSurface.h" // IWYU pragma: keep
+#include "include/core/SkSurfaceProps.h"
+
+#include <optional>
+
+class SkData;
+class SkDrawable;
+class SkImage;
+class SkPath;
+class SkPicture;
+class SkRRect;
+class SkRegion;
+class SkTextBlob;
+class SkVertices;
+struct SkDrawShadowRec;
 
 class SkPaintFilterCanvas::AutoPaintFilter {
 public:
@@ -150,8 +166,8 @@ void SkPaintFilterCanvas::onDrawVerticesObject(const SkVertices* vertices,
     }
 }
 
-void SkPaintFilterCanvas::onDrawPatch(const SkPoint cubics[], const SkColor colors[],
-                                      const SkPoint texCoords[], SkBlendMode bmode,
+void SkPaintFilterCanvas::onDrawPatch(const SkPoint cubics[12], const SkColor colors[4],
+                                      const SkPoint texCoords[4], SkBlendMode bmode,
                                       const SkPaint& paint) {
     AutoPaintFilter apf(this, paint);
     if (apf.shouldDraw()) {
@@ -172,7 +188,7 @@ void SkPaintFilterCanvas::onDrawPicture(const SkPicture* picture, const SkMatrix
             if (   newPaint->getAlphaf()      == 1.0f
                 && newPaint->getColorFilter() == nullptr
                 && newPaint->getImageFilter() == nullptr
-                && newPaint->getBlendMode()   == SkBlendMode::kSrcOver) {
+                && newPaint->asBlendMode()    == SkBlendMode::kSrcOver) {
                 // restore the original nullptr
                 newPaint = nullptr;
             }
@@ -191,7 +207,8 @@ void SkPaintFilterCanvas::onDrawDrawable(SkDrawable* drawable, const SkMatrix* m
     }
 }
 
-void SkPaintFilterCanvas::onDrawGlyphRunList(const SkGlyphRunList& list, const SkPaint& paint) {
+void SkPaintFilterCanvas::onDrawGlyphRunList(
+        const sktext::GlyphRunList& list, const SkPaint& paint) {
     AutoPaintFilter apf(this, paint);
     if (apf.shouldDraw()) {
         this->SkNWayCanvas::onDrawGlyphRunList(list, apf.paint());
@@ -233,7 +250,7 @@ void SkPaintFilterCanvas::onDrawEdgeAAQuad(const SkRect& rect, const SkPoint cli
     AutoPaintFilter apf(this, paint);
     if (apf.shouldDraw()) {
         this->SkNWayCanvas::onDrawEdgeAAQuad(rect, clip, aa, apf.paint().getColor4f(),
-                                             apf.paint().getBlendMode());
+                                             apf.paint().getBlendMode_or(SkBlendMode::kSrcOver));
     }
 }
 
@@ -252,18 +269,18 @@ void SkPaintFilterCanvas::onDrawEdgeAAImageSet2(const ImageSetEntry set[], int c
 
 sk_sp<SkSurface> SkPaintFilterCanvas::onNewSurface(const SkImageInfo& info,
                                                    const SkSurfaceProps& props) {
-    return proxy()->makeSurface(info, &props);
+    return this->proxy()->makeSurface(info, &props);
 }
 
 bool SkPaintFilterCanvas::onPeekPixels(SkPixmap* pixmap) {
-    return proxy()->peekPixels(pixmap);
+    return this->proxy()->peekPixels(pixmap);
 }
 
 bool SkPaintFilterCanvas::onAccessTopLayerPixels(SkPixmap* pixmap) {
     SkImageInfo info;
     size_t rowBytes;
 
-    void* addr = proxy()->accessTopLayerPixels(&info, &rowBytes);
+    void* addr = this->proxy()->accessTopLayerPixels(&info, &rowBytes);
     if (!addr) {
         return false;
     }
@@ -273,13 +290,12 @@ bool SkPaintFilterCanvas::onAccessTopLayerPixels(SkPixmap* pixmap) {
 }
 
 SkImageInfo SkPaintFilterCanvas::onImageInfo() const {
-    return proxy()->imageInfo();
+    return this->proxy()->imageInfo();
 }
 
-bool SkPaintFilterCanvas::onGetProps(SkSurfaceProps* props) const {
-    return proxy()->getProps(props);
-}
-
-GrSurfaceDrawContext* SkPaintFilterCanvas::topDeviceSurfaceDrawContext() {
-    return SkCanvasPriv::TopDeviceSurfaceDrawContext(this->proxy());
+bool SkPaintFilterCanvas::onGetProps(SkSurfaceProps* props, bool top) const {
+    if (props) {
+        *props = top ? this->proxy()->getTopProps() : this->proxy()->getBaseProps();
+    }
+    return true;
 }

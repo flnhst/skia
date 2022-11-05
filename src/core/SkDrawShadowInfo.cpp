@@ -50,10 +50,7 @@ bool GetSpotShadowTransform(const SkPoint3& lightPos, SkScalar lightRadius,
         // get rotated quad in 3D
         SkPoint pts[4];
         ctm.mapRectToQuad(pts, pathBounds);
-        // No shadows for bowties or other degenerate cases
-        if (!SkIsConvexPolygon(pts, 4)) {
-            return false;
-        }
+
         SkPoint3 pts3D[4];
         SkScalar z = heightFunc(pathBounds.fLeft, pathBounds.fTop);
         pts3D[0].set(pts[0].fX, pts[0].fY, z);
@@ -151,10 +148,8 @@ void GetLocalBounds(const SkPath& path, const SkDrawShadowRec& rec, const SkMatr
 
         // get spot params (in device space)
         if (SkToBool(rec.fFlags & SkShadowFlags::kDirectionalLight_ShadowFlag)) {
-            SkPoint3 lightDir = rec.fLightPos;
-            lightDir.normalize();
-            SkDrawShadowMetrics::GetDirectionalParams(occluderZ, lightDir.fX, lightDir.fY,
-                                                      lightDir.fZ, rec.fLightRadius,
+            SkDrawShadowMetrics::GetDirectionalParams(occluderZ, rec.fLightPos.fX, rec.fLightPos.fY,
+                                                      rec.fLightPos.fZ, rec.fLightRadius,
                                                       &spotBlur, &spotScale, &spotOffset);
         } else {
             SkPoint devLightPos = SkPoint::Make(rec.fLightPos.fX, rec.fLightPos.fY);
@@ -172,10 +167,8 @@ void GetLocalBounds(const SkPath& path, const SkDrawShadowRec& rec, const SkMatr
 
         // get spot params (in local space)
         if (SkToBool(rec.fFlags & SkShadowFlags::kDirectionalLight_ShadowFlag)) {
-            SkPoint3 lightDir = rec.fLightPos;
-            lightDir.normalize();
-            SkDrawShadowMetrics::GetDirectionalParams(occluderZ, lightDir.fX, lightDir.fY,
-                                                      lightDir.fZ, rec.fLightRadius,
+            SkDrawShadowMetrics::GetDirectionalParams(occluderZ, rec.fLightPos.fX, rec.fLightPos.fY,
+                                                      rec.fLightPos.fZ, rec.fLightRadius,
                                                       &spotBlur, &spotScale, &spotOffset);
             // light dir is in device space, so need to map spot offset back into local space
             SkMatrix inverse;

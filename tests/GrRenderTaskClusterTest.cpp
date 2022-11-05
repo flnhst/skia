@@ -5,10 +5,21 @@
  * found in the LICENSE file.
  */
 
-#include "src/gpu/GrRenderTaskCluster.h"
-#include "src/gpu/mock/GrMockRenderTask.h"
-#include "src/gpu/mock/GrMockSurfaceProxy.h"
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkSpan.h"
+#include "include/core/SkString.h"
+#include "include/private/SkTArray.h"
+#include "src/core/SkTInternalLList.h"
+#include "src/gpu/ganesh/GrRenderTask.h"
+#include "src/gpu/ganesh/GrRenderTaskCluster.h"
+#include "src/gpu/ganesh/GrSurfaceProxy.h"
+#include "src/gpu/ganesh/mock/GrMockRenderTask.h"
+#include "src/gpu/ganesh/mock/GrMockSurfaceProxy.h"
 #include "tests/Test.h"
+
+#include <array>
+#include <cstddef>
+#include <utility>
 
 typedef void (*CreateGraphPF)(SkTArray<sk_sp<GrMockRenderTask>>* graph,
                               SkTArray<sk_sp<GrMockRenderTask>>* expected);
@@ -17,7 +28,8 @@ static void make_proxies(int count, SkTArray<sk_sp<GrSurfaceProxy>>* proxies) {
     proxies->reset(count);
     for (int i = 0; i < count; i++) {
         auto name = SkStringPrintf("%c", 'A' + i);
-        proxies->at(i) = sk_make_sp<GrMockSurfaceProxy>(std::move(name));
+        proxies->at(i) = sk_make_sp<GrMockSurfaceProxy>(std::move(name),
+        /*label=*/"RenderTaskClusterTest");
     }
 }
 
@@ -127,7 +139,7 @@ DEF_TEST(GrRenderTaskCluster, reporter) {
         create_graph3
     };
 
-    for (size_t i = 0; i < SK_ARRAY_COUNT(tests); ++i) {
+    for (size_t i = 0; i < std::size(tests); ++i) {
         SkTArray<sk_sp<GrMockRenderTask>> graph;
         SkTArray<sk_sp<GrMockRenderTask>> expectedOutput;
 

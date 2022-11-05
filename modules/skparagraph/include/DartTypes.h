@@ -6,6 +6,7 @@
 #include "include/core/SkRect.h"
 #include "include/core/SkTypes.h"
 
+#include <algorithm>
 #include <iterator>
 #include <limits>
 
@@ -94,6 +95,8 @@ template <typename T> struct SkRange {
     SkRange() : start(), end() {}
     SkRange(T s, T e) : start(s), end(e) {}
 
+    using SignedT = std::make_signed_t<T>;
+
     T start, end;
 
     bool operator==(const SkRange<T>& other) const {
@@ -102,7 +105,7 @@ template <typename T> struct SkRange {
 
     T width() const { return end - start; }
 
-    void Shift(T delta) {
+    void Shift(SignedT delta) {
         start += delta;
         end += delta;
     }
@@ -144,12 +147,6 @@ enum class LineMetricStyle : uint8_t {
     Typographic,
     // Use ascent, descent, etc like css with the leading split and with height adjustments
     CSS
-};
-
-enum class DrawOptions {
-    kRecord,
-    kReplay,
-    kDirect
 };
 
 }  // namespace textlayout

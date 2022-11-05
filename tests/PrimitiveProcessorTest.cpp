@@ -5,35 +5,60 @@
  * found in the LICENSE file.
  */
 
-// This is a GPU-backend specific test. It relies on static intializers to work
+// This is a GPU-backend specific test. It relies on static initializers to work
 
-#include <memory>
-
+#include "include/core/SkColorSpace.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkString.h"
+#include "include/core/SkSurfaceProps.h"
 #include "include/core/SkTypes.h"
+#include "include/gpu/GrConfig.h"
+#include "include/gpu/GrDirectContext.h"
+#include "include/private/gpu/ganesh/GrTypesPriv.h"
+#include "src/core/SkArenaAlloc.h"
+#include "src/core/SkPointPriv.h"
+#include "src/core/SkSLTypeShared.h"
+#include "src/gpu/KeyBuilder.h"
+#include "src/gpu/ganesh/GrAppliedClip.h"
+#include "src/gpu/ganesh/GrCaps.h"
+#include "src/gpu/ganesh/GrDirectContextPriv.h"
+#include "src/gpu/ganesh/GrGeometryProcessor.h"
+#include "src/gpu/ganesh/GrGpu.h"
+#include "src/gpu/ganesh/GrOpFlushState.h"
+#include "src/gpu/ganesh/GrPaint.h"
+#include "src/gpu/ganesh/GrPipeline.h"
+#include "src/gpu/ganesh/GrProcessorSet.h"
+#include "src/gpu/ganesh/GrProgramInfo.h"
+#include "src/gpu/ganesh/SurfaceDrawContext.h"
+#include "src/gpu/ganesh/glsl/GrGLSLFragmentShaderBuilder.h"
+#include "src/gpu/ganesh/glsl/GrGLSLVarying.h"
+#include "src/gpu/ganesh/ops/GrMeshDrawOp.h"
+#include "src/gpu/ganesh/ops/GrOp.h"
+#include "src/gpu/ganesh/ops/GrSimpleMeshDrawOpHelper.h"
+#include "tests/CtsEnforcement.h"
 #include "tests/Test.h"
 
-#include "include/core/SkString.h"
-#include "include/gpu/GrDirectContext.h"
-#include "src/core/SkPointPriv.h"
-#include "src/gpu/GrDirectContextPriv.h"
-#include "src/gpu/GrGeometryProcessor.h"
-#include "src/gpu/GrGpu.h"
-#include "src/gpu/GrMemoryPool.h"
-#include "src/gpu/GrOpFlushState.h"
-#include "src/gpu/GrProgramInfo.h"
-#include "src/gpu/GrSurfaceDrawContext.h"
-#include "src/gpu/glsl/GrGLSLFragmentShaderBuilder.h"
-#include "src/gpu/glsl/GrGLSLGeometryProcessor.h"
-#include "src/gpu/glsl/GrGLSLVarying.h"
-#include "src/gpu/ops/GrMeshDrawOp.h"
-#include "src/gpu/ops/GrSimpleMeshDrawOpHelper.h"
+#include <cstddef>
+#include <memory>
+#include <utility>
+
+class GrDstProxyView;
+class GrGLSLProgramDataManager;
+class GrMeshDrawTarget;
+class GrRecordingContext;
+class GrSurfaceProxyView;
+enum class GrXferBarrierFlags;
+struct GrContextOptions;
+struct GrShaderCaps;
+struct GrSimpleMesh;
+struct SkPoint;
 
 namespace {
 class Op : public GrMeshDrawOp {
 public:
     DEFINE_OP_CLASS_ID
 
-    const char* name() const override { return "Dummy Op"; }
+    const char* name() const override { return "Test Op"; }
 
     static GrOp::Owner Make(GrRecordingContext* rContext, int numAttribs) {
         return GrOp::Make<Op>(rContext, numAttribs);
@@ -59,8 +84,9 @@ private:
     void onCreateProgramInfo(const GrCaps* caps,
                              SkArenaAlloc* arena,
                              const GrSurfaceProxyView& writeView,
+                             bool usesMSAASurface,
                              GrAppliedClip&& appliedClip,
-                             const GrXferProcessor::DstProxyView& dstProxyView,
+                             const GrDstProxyView& dstProxyView,
                              GrXferBarrierFlags renderPassXferBarriers,
                              GrLoadOp colorLoadOp) override {
         class GP : public GrGeometryProcessor {
@@ -71,11 +97,16 @@ private:
                 });
             }
 
-            const char* name() const override { return "Dummy GP"; }
+            const char* name() const override { return "Test GP"; }
 
-            GrGLSLGeometryProcessor* createGLSLInstance(const GrShaderCaps&) const override {
-                class GLSLGP : public GrGLSLGeometryProcessor {
+            std::unique_ptr<ProgramImpl> makeProgramImpl(const GrShaderCaps&) const override {
+                class Impl : public ProgramImpl {
                 public:
+                    void setData(const GrGLSLProgramDataManager&,
+                                 const GrShaderCaps&,
+                                 const GrGeometryProcessor&) override {}
+
+                private:
                     void onEmitCode(EmitArgs& args, GrGPArgs* gpArgs) override {
                         const GP& gp = args.fGeomProc.cast<GP>();
                         args.fVaryingHandler->emitAttributes(gp);
@@ -85,14 +116,11 @@ private:
                         fragBuilder->codeAppendf("const half4 %s = half4(1);",
                                                  args.fOutputCoverage);
                     }
-                    void setData(const GrGLSLProgramDataManager&,
-                                 const GrShaderCaps&,
-                                 const GrGeometryProcessor&) override {}
                 };
-                return new GLSLGP();
+
+                return std::make_unique<Impl>();
             }
-            void getGLSLProcessorKey(const GrShaderCaps&,
-                                     GrProcessorKeyBuilder* builder) const override {
+            void addToKey(const GrShaderCaps&, skgpu::KeyBuilder* builder) const override {
                 builder->add32(fNumAttribs);
             }
 
@@ -107,13 +135,13 @@ private:
                     // component count to fit within the limits for iOS Metal.
                     if (i & 0x1) {
                         fAttributes[i] = {fAttribNames[i].c_str(), kFloat_GrVertexAttribType,
-                                                                   kFloat_GrSLType};
+                                                                   SkSLType::kFloat};
                     } else {
                         fAttributes[i] = {fAttribNames[i].c_str(), kFloat2_GrVertexAttribType,
-                                                                   kFloat2_GrSLType};
+                                                                   SkSLType::kFloat2};
                     }
                 }
-                this->setVertexAttributes(fAttributes.get(), numAttribs);
+                this->setVertexAttributesWithImplicitOffsets(fAttributes.get(), numAttribs);
             }
 
             int fNumAttribs;
@@ -128,6 +156,7 @@ private:
         fProgramInfo = GrSimpleMeshDrawOpHelper::CreateProgramInfo(caps,
                                                                    arena,
                                                                    writeView,
+                                                                   usesMSAASurface,
                                                                    std::move(appliedClip),
                                                                    dstProxyView,
                                                                    gp,
@@ -138,7 +167,7 @@ private:
                                                                    GrPipeline::InputFlags::kNone);
     }
 
-    void onPrepareDraws(Target* target) override {
+    void onPrepareDraws(GrMeshDrawTarget* target) override {
         if (!fProgramInfo) {
             this->createProgramInfo(target);
         }
@@ -168,44 +197,51 @@ private:
 };
 }  // namespace
 
-DEF_GPUTEST_FOR_ALL_CONTEXTS(VertexAttributeCount, reporter, ctxInfo) {
-    auto context = ctxInfo.directContext();
+DEF_GANESH_TEST_FOR_ALL_CONTEXTS(VertexAttributeCount,
+                                 reporter,
+                                 ctxInfo,
+                                 CtsEnforcement::kApiLevel_T) {
+    auto dContext = ctxInfo.directContext();
 #if GR_GPU_STATS
-    GrGpu* gpu = context->priv().getGpu();
+    GrGpu* gpu = dContext->priv().getGpu();
 #endif
 
-    auto surfaceDrawContext = GrSurfaceDrawContext::Make(context, GrColorType::kRGBA_8888, nullptr,
-                                                         SkBackingFit::kApprox, {1, 1},
-                                                         SkSurfaceProps());
-    if (!surfaceDrawContext) {
+    auto sdc = skgpu::v1::SurfaceDrawContext::Make(dContext,
+                                                   GrColorType::kRGBA_8888,
+                                                   nullptr,
+                                                   SkBackingFit::kApprox,
+                                                   {1, 1},
+                                                   SkSurfaceProps(),
+                                                   /*label=*/{});
+    if (!sdc) {
         ERRORF(reporter, "Could not create render target context.");
         return;
     }
-    int attribCnt = context->priv().caps()->maxVertexAttributes();
+    int attribCnt = dContext->priv().caps()->maxVertexAttributes();
     if (!attribCnt) {
         ERRORF(reporter, "No attributes allowed?!");
         return;
     }
-    context->flushAndSubmit();
-    context->priv().resetGpuStats();
+    dContext->flushAndSubmit();
+    dContext->priv().resetGpuStats();
 #if GR_GPU_STATS
     REPORTER_ASSERT(reporter, gpu->stats()->numDraws() == 0);
     REPORTER_ASSERT(reporter, gpu->stats()->numFailedDraws() == 0);
 #endif
     // Adding discard to appease vulkan validation warning about loading uninitialized data on draw
-    surfaceDrawContext->discard();
+    sdc->discard();
 
     GrPaint grPaint;
     // This one should succeed.
-    surfaceDrawContext->addDrawOp(Op::Make(context, attribCnt));
-    context->flushAndSubmit();
+    sdc->addDrawOp(Op::Make(dContext, attribCnt));
+    dContext->flushAndSubmit();
 #if GR_GPU_STATS
     REPORTER_ASSERT(reporter, gpu->stats()->numDraws() == 1);
     REPORTER_ASSERT(reporter, gpu->stats()->numFailedDraws() == 0);
 #endif
-    context->priv().resetGpuStats();
-    surfaceDrawContext->addDrawOp(Op::Make(context, attribCnt + 1));
-    context->flushAndSubmit();
+    dContext->priv().resetGpuStats();
+    sdc->addDrawOp(Op::Make(dContext, attribCnt + 1));
+    dContext->flushAndSubmit();
 #if GR_GPU_STATS
     REPORTER_ASSERT(reporter, gpu->stats()->numDraws() == 0);
     REPORTER_ASSERT(reporter, gpu->stats()->numFailedDraws() == 1);

@@ -7,15 +7,28 @@
 
 #include "include/core/SkPaint.h"
 #include "include/core/SkPath.h"
-#include "include/core/SkTime.h"
+#include "include/core/SkPoint.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkTypes.h"
+#include "include/private/SkFloatBits.h"
 #include "include/utils/SkRandom.h"
 #include "src/core/SkPointPriv.h"
 #include "src/core/SkStrokerPriv.h"
 #include "src/pathops/SkPathOpsCubic.h"
+#include "src/pathops/SkPathOpsPoint.h"
+#include "src/pathops/SkPathOpsQuad.h"
 #include "tests/PathOpsCubicIntersectionTestData.h"
 #include "tests/PathOpsQuadIntersectionTestData.h"
+#include "tests/PathOpsTestCommon.h"
 #include "tests/Test.h"
 #include "tools/flags/CommandLineFlags.h"
+
+#include <array>
+#include <cfloat>
+#include <cstddef>
+#include <cstdint>
+
+using namespace PathOpsCubicIntersectionTestData;
 
 static DEFINE_bool(timeout, true, "run until alloted time expires");
 
@@ -25,7 +38,7 @@ const SkScalar widths[] = {-FLT_MAX, -1, -0.1f, -FLT_EPSILON, 0, FLT_EPSILON,
         0.0000001f, 0.000001f, 0.00001f, 0.0001f, 0.001f, 0.01f,
         0.1f, 0.2f, 0.3f, 0.4f, 0.5f, 1, 1.1f, 2, 10, 10e2f, 10e3f, 10e4f, 10e5f, 10e6f, 10e7f,
         10e8f, 10e9f, 10e10f, 10e20f,  FLT_MAX };
-size_t widths_count = SK_ARRAY_COUNT(widths);
+size_t widths_count = std::size(widths);
 
 static void pathTest(const SkPath& path) {
     SkPaint p;

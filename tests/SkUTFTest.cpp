@@ -4,6 +4,10 @@
 #include "src/utils/SkUTF.h"
 #include "tests/Test.h"
 
+#include <cstdint>
+#include <cstddef>
+#include <string>
+
 DEF_TEST(SkUTF_UTF16, reporter) {
     // Test non-basic-multilingual-plane unicode.
     static const SkUnichar gUni[] = {
@@ -16,7 +20,7 @@ DEF_TEST(SkUTF_UTF16, reporter) {
         size_t count2 = SkUTF::CountUTF16(buf, sizeof(buf));
         REPORTER_ASSERT(reporter, count2 == 1);
         const uint16_t* ptr = buf;
-        SkUnichar c = SkUTF::NextUTF16(&ptr, buf + SK_ARRAY_COUNT(buf));
+        SkUnichar c = SkUTF::NextUTF16(&ptr, buf + std::size(buf));
         REPORTER_ASSERT(reporter, c == uni);
         REPORTER_ASSERT(reporter, ptr - buf == 2);
     }

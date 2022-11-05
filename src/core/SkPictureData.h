@@ -61,6 +61,7 @@ public:
 #define SK_PICT_PAINT_BUFFER_TAG    SkSetFourByteTag('p', 'n', 't', ' ')
 #define SK_PICT_PATH_BUFFER_TAG     SkSetFourByteTag('p', 't', 'h', ' ')
 #define SK_PICT_TEXTBLOB_BUFFER_TAG SkSetFourByteTag('b', 'l', 'o', 'b')
+#define SK_PICT_SLUG_BUFFER_TAG SkSetFourByteTag('s', 'l', 'u', 'g')
 #define SK_PICT_VERTICES_BUFFER_TAG SkSetFourByteTag('v', 'e', 'r', 't')
 #define SK_PICT_IMAGE_BUFFER_TAG    SkSetFourByteTag('i', 'm', 'a', 'g')
 
@@ -80,11 +81,14 @@ public:
     static SkPictureData* CreateFromStream(SkStream*,
                                            const SkPictInfo&,
                                            const SkDeserialProcs&,
-                                           SkTypefacePlayback*);
+                                           SkTypefacePlayback*,
+                                           int recursionLimit);
     static SkPictureData* CreateFromBuffer(SkReadBuffer&, const SkPictInfo&);
 
     void serialize(SkWStream*, const SkSerialProcs&, SkRefCntSet*, bool textBlobsOnly=false) const;
     void flatten(SkWriteBuffer&) const;
+
+    const SkPictInfo& info() const { return fInfo; }
 
     const sk_sp<SkData>& opData() const { return fOpData; }
 
@@ -92,7 +96,8 @@ protected:
     explicit SkPictureData(const SkPictInfo& info);
 
     // Does not affect ownership of SkStream.
-    bool parseStream(SkStream*, const SkDeserialProcs&, SkTypefacePlayback*);
+    bool parseStream(SkStream*, const SkDeserialProcs&, SkTypefacePlayback*,
+                     int recursionLimit);
     bool parseBuffer(SkReadBuffer& buffer);
 
 public:
@@ -127,6 +132,12 @@ public:
         return read_index_base_1_or_null(reader, fTextBlobs);
     }
 
+#if SK_SUPPORT_GPU
+    const sktext::gpu::Slug* getSlug(SkReadBuffer* reader) const {
+        return read_index_base_1_or_null(reader, fSlugs);
+    }
+#endif
+
     const SkVertices* getVertices(SkReadBuffer* reader) const {
         return read_index_base_1_or_null(reader, fVertices);
     }
@@ -135,7 +146,8 @@ private:
     // these help us with reading/writing
     // Does not affect ownership of SkStream.
     bool parseStreamTag(SkStream*, uint32_t tag, uint32_t size,
-                        const SkDeserialProcs&, SkTypefacePlayback*);
+                        const SkDeserialProcs&, SkTypefacePlayback*,
+                        int recursionLimit);
     void parseBufferTag(SkReadBuffer&, uint32_t tag, uint32_t size);
     void flattenToBuffer(SkWriteBuffer&, bool textBlobsOnly) const;
 
@@ -152,6 +164,10 @@ private:
     SkTArray<sk_sp<const SkTextBlob>>  fTextBlobs;
     SkTArray<sk_sp<const SkVertices>>  fVertices;
     SkTArray<sk_sp<const SkImage>>     fImages;
+#if SK_SUPPORT_GPU
+    SkTArray<sk_sp<const sktext::gpu::Slug>>      fSlugs;
+#endif
+
 
     SkTypefacePlayback                 fTFPlayback;
     std::unique_ptr<SkFactoryPlayback> fFactoryPlayback;

@@ -5,30 +5,63 @@
  * found in the LICENSE file.
  */
 
+#include "include/core/SkAnnotation.h"
+#include "include/core/SkBitmap.h"
+#include "include/core/SkBlendMode.h"
 #include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkColorFilter.h"
+#include "include/core/SkData.h"
+#include "include/core/SkFont.h"
+#include "include/core/SkFontArguments.h"
 #include "include/core/SkFontMetrics.h"
 #include "include/core/SkFontMgr.h"
+#include "include/core/SkFontStyle.h"
 #include "include/core/SkImage.h"
-#include "include/core/SkMallocPixelRef.h"
+#include "include/core/SkImageFilter.h"
+#include "include/core/SkImageInfo.h"
+#include "include/core/SkMatrix.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkPath.h"
+#include "include/core/SkPathEffect.h"
+#include "include/core/SkPicture.h"
 #include "include/core/SkPictureRecorder.h"
+#include "include/core/SkPoint.h"
+#include "include/core/SkPoint3.h"
+#include "include/core/SkRRect.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkRegion.h"
+#include "include/core/SkSamplingOptions.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkSerialProcs.h"
+#include "include/core/SkStream.h"
+#include "include/core/SkString.h"
+#include "include/core/SkSurface.h"
 #include "include/core/SkTextBlob.h"
 #include "include/core/SkTypeface.h"
+#include "include/core/SkTypes.h"
 #include "include/effects/SkDashPathEffect.h"
 #include "include/effects/SkImageFilters.h"
-#include "include/effects/SkTableColorFilter.h"
-#include "include/private/SkFixed.h"
+#include "include/private/SkMalloc.h"
 #include "include/private/SkTemplates.h"
 #include "src/core/SkAnnotationKeys.h"
 #include "src/core/SkAutoMalloc.h"
-#include "src/core/SkMatrixPriv.h"
-#include "src/core/SkOSFile.h"
+#include "src/core/SkColorFilterBase.h"
+#include "src/core/SkImageFilter_Base.h"
 #include "src/core/SkPicturePriv.h"
 #include "src/core/SkReadBuffer.h"
 #include "src/core/SkWriteBuffer.h"
-#include "src/shaders/SkShaderBase.h"
 #include "tests/Test.h"
 #include "tools/Resources.h"
 #include "tools/ToolUtils.h"
+
+#include <algorithm>
+#include <array>
+#include <cstdint>
+#include <cstring>
+#include <memory>
+#include <utility>
 
 static const uint32_t kArraySize = 64;
 static const int kBitmapSize = 256;
@@ -281,8 +314,8 @@ static void TestBitmapSerialization(const SkBitmap& validBitmap,
                               std::move(validBitmapSource), nullptr));
 
     sk_sp<SkImageFilter> deserializedFilter(
-        TestFlattenableSerialization<SkImageFilter>(
-            xfermodeImageFilter.get(), shouldSucceed, reporter));
+        TestFlattenableSerialization<SkImageFilter_Base>(
+            (SkImageFilter_Base*)xfermodeImageFilter.get(), shouldSucceed, reporter));
 
     // Try to render a small bitmap using the invalid deserialized filter
     // to make sure we don't crash while trying to render it
@@ -303,7 +336,7 @@ static void TestColorFilterSerialization(skiatest::Reporter* reporter) {
     for (int i = 0; i < 256; ++i) {
         table[i] = (i * 41) % 256;
     }
-    auto filter = SkTableColorFilter::Make(table);
+    auto filter = SkColorFilters::Table(table);
     sk_sp<SkColorFilter> copy(
         TestFlattenableSerialization(as_CFB(filter.get()), true, reporter));
 }
@@ -354,7 +387,7 @@ static sk_sp<SkTypeface> deserialize_typeface_proc(const void* data, size_t leng
     }
     memcpy(&stream, data, sizeof(stream));
 
-    SkFontID id;
+    SkTypefaceID id;
     if (!stream->read(&id, sizeof(id))) {
         return nullptr;
     }
@@ -405,7 +438,7 @@ static sk_sp<SkTypeface> makeDistortableWithNonDefaultAxes(skiatest::Reporter* r
         { SkSetFourByteTag('w','g','h','t'), SK_ScalarSqrt2 },
     };
     SkFontArguments params;
-    params.setVariationDesignPosition({position, SK_ARRAY_COUNT(position)});
+    params.setVariationDesignPosition({position, std::size(position)});
 
     sk_sp<SkFontMgr> fm = SkFontMgr::RefDefault();
 
@@ -726,7 +759,6 @@ DEF_TEST(Serialization, reporter) {
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
-#include "include/core/SkAnnotation.h"
 
 static sk_sp<SkPicture> copy_picture_via_serialization(SkPicture* src) {
     SkDynamicMemoryWStream wstream;
@@ -802,7 +834,7 @@ DEF_TEST(Annotations, reporter) {
     sk_sp<SkPicture> pict0(recorder.finishRecordingAsPicture());
     sk_sp<SkPicture> pict1(copy_picture_via_serialization(pict0.get()));
 
-    TestAnnotationCanvas canvas(reporter, recs, SK_ARRAY_COUNT(recs));
+    TestAnnotationCanvas canvas(reporter, recs, std::size(recs));
     canvas.drawPicture(pict1);
 }
 

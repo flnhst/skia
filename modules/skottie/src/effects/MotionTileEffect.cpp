@@ -86,15 +86,14 @@ protected:
         auto layer_shader = fLayerPicture->makeShader(tm, tm, SkFilterMode::kLinear,
                                                       &layerShaderMatrix, nullptr);
 
-        if (fPhase) {
+        if (fPhase && layer_shader && tile.isFinite()) {
             // To implement AE phase semantics, we construct a mask shader for the pass-through
             // rows/columns.  We then draw the layer content through this mask, and then again
             // through the inverse mask with a phase shift.
             const auto phase_vec = fHorizontalPhase
                     ? SkVector::Make(tile.width(), 0)
                     : SkVector::Make(0, tile.height());
-            const auto phase_shift = SkVector::Make(phase_vec.fX / layerShaderMatrix.getScaleX(),
-                                                    phase_vec.fY / layerShaderMatrix.getScaleY())
+            const auto phase_shift = SkVector::Make(phase_vec.fX, phase_vec.fY)
                                      * std::fmod(fPhase * (1/360.0f), 1);
             const auto phase_shader_matrix = SkMatrix::Translate(phase_shift.x(), phase_shift.y());
 
@@ -108,7 +107,7 @@ protected:
                                      tile.y() + 2 * (tile.height() - phase_vec.fY) }};
 
             auto mask_shader = SkGradientShader::MakeLinear(pts, colors, pos,
-                                                            SK_ARRAY_COUNT(colors),
+                                                            std::size(colors),
                                                             SkTileMode::kRepeat);
 
             // First drawing pass: in-place masked layer content.
@@ -138,6 +137,11 @@ protected:
 
         SkPaint paint;
         paint.setAntiAlias(true);
+
+        if (ctx) {
+            // apply any pending paint effects via the shader paint
+            ctx->modulatePaint(canvas->getLocalToDeviceAs3x3(), &paint);
+        }
 
         paint.setShader(fMainPassShader);
         canvas->drawRect(this->bounds(), paint);

@@ -15,21 +15,23 @@
 
 namespace skottie::internal {
 
+#ifdef SK_ENABLE_SKSL
+
 namespace  {
 
 // Convert to black & white, based on input luminance and a threshold uniform.
-static constexpr char gThresholdSkSL[] = R"(
-    uniform half   t;
+static constexpr char gThresholdSkSL[] =
+    "uniform half t;"
 
-    half4 main(half4 color) {
-        half4 c = unpremul(color);
+    "half4 main(half4 color) {"
+        "half4 c = unpremul(color);"
 
-        half lum = dot(c.rgb, half3(0.2126, 0.7152, 0.0722)),
-              bw = step(t, lum);
+        "half lum = dot(c.rgb, half3(0.2126, 0.7152, 0.0722)),"
+              "bw = step(t, lum);"
 
-        return bw.xxx1 * c.a;
-    }
-)";
+        "return bw.xxx1 * c.a;"
+    "}"
+;
 
 static sk_sp<SkRuntimeEffect> threshold_effect() {
     static const SkRuntimeEffect* effect =
@@ -69,11 +71,18 @@ private:
 
 } // namespace
 
+#endif  // SK_ENABLE_SKSL
+
 sk_sp<sksg::RenderNode> EffectBuilder::attachThresholdEffect(const skjson::ArrayValue& jprops,
                                                              sk_sp<sksg::RenderNode> layer) const {
+#ifdef SK_ENABLE_SKSL
     return fBuilder->attachDiscardableAdapter<ThresholdAdapter>(jprops,
                                                                 std::move(layer),
                                                                 *fBuilder);
+#else
+    // TODO(skia:12197)
+    return layer;
+#endif
 }
 
 } // namespace skottie::internal

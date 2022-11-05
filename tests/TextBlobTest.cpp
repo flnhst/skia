@@ -5,15 +5,34 @@
  * found in the LICENSE file.
  */
 
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkData.h"
+#include "include/core/SkFont.h"
+#include "include/core/SkFontStyle.h"
+#include "include/core/SkFontTypes.h"
+#include "include/core/SkImage.h"
 #include "include/core/SkPaint.h"
 #include "include/core/SkPoint.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkScalar.h"
 #include "include/core/SkSerialProcs.h"
+#include "include/core/SkSurface.h"
+#include "include/core/SkTextBlob.h"
 #include "include/core/SkTypeface.h"
+#include "include/core/SkTypes.h"
+#include "include/private/SkTArray.h"
+#include "include/private/SkTemplates.h"
 #include "include/private/SkTo.h"
 #include "src/core/SkTextBlobPriv.h"
-
 #include "tests/Test.h"
 #include "tools/ToolUtils.h"
+
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <string>
 
 class TextBlobTester {
 public:
@@ -28,24 +47,24 @@ public:
         RunDef set1[] = {
             { 128, SkTextBlobRunIterator::kDefault_Positioning, 100, 100 },
         };
-        RunBuilderTest(reporter, builder, set1, SK_ARRAY_COUNT(set1), set1, SK_ARRAY_COUNT(set1));
+        RunBuilderTest(reporter, builder, set1, std::size(set1), set1, std::size(set1));
 
         RunDef set2[] = {
             { 128, SkTextBlobRunIterator::kHorizontal_Positioning, 100, 100 },
         };
-        RunBuilderTest(reporter, builder, set2, SK_ARRAY_COUNT(set2), set2, SK_ARRAY_COUNT(set2));
+        RunBuilderTest(reporter, builder, set2, std::size(set2), set2, std::size(set2));
 
         RunDef set3[] = {
             { 128, SkTextBlobRunIterator::kFull_Positioning, 100, 100 },
         };
-        RunBuilderTest(reporter, builder, set3, SK_ARRAY_COUNT(set3), set3, SK_ARRAY_COUNT(set3));
+        RunBuilderTest(reporter, builder, set3, std::size(set3), set3, std::size(set3));
 
         RunDef set4[] = {
             { 128, SkTextBlobRunIterator::kDefault_Positioning, 100, 150 },
             { 128, SkTextBlobRunIterator::kDefault_Positioning, 100, 150 },
             { 128, SkTextBlobRunIterator::kDefault_Positioning, 100, 150 },
         };
-        RunBuilderTest(reporter, builder, set4, SK_ARRAY_COUNT(set4), set4, SK_ARRAY_COUNT(set4));
+        RunBuilderTest(reporter, builder, set4, std::size(set4), set4, std::size(set4));
 
         RunDef set5[] = {
             { 128, SkTextBlobRunIterator::kHorizontal_Positioning, 100, 150 },
@@ -56,8 +75,8 @@ public:
             { 256, SkTextBlobRunIterator::kHorizontal_Positioning, 0, 150 },
             { 128, SkTextBlobRunIterator::kHorizontal_Positioning, 0, 250 },
         };
-        RunBuilderTest(reporter, builder, set5, SK_ARRAY_COUNT(set5), mergedSet5,
-                       SK_ARRAY_COUNT(mergedSet5));
+        RunBuilderTest(reporter, builder, set5, std::size(set5), mergedSet5,
+                       std::size(mergedSet5));
 
         RunDef set6[] = {
             { 128, SkTextBlobRunIterator::kFull_Positioning, 100, 100 },
@@ -67,8 +86,8 @@ public:
         RunDef mergedSet6[] = {
             { 384, SkTextBlobRunIterator::kFull_Positioning, 0, 0 },
         };
-        RunBuilderTest(reporter, builder, set6, SK_ARRAY_COUNT(set6), mergedSet6,
-                       SK_ARRAY_COUNT(mergedSet6));
+        RunBuilderTest(reporter, builder, set6, std::size(set6), mergedSet6,
+                       std::size(mergedSet6));
 
         RunDef set7[] = {
             { 128, SkTextBlobRunIterator::kDefault_Positioning, 100, 150 },
@@ -95,8 +114,8 @@ public:
             { 128, SkTextBlobRunIterator::kHorizontal_Positioning, 0, 650 },
             { 256, SkTextBlobRunIterator::kFull_Positioning, 0, 0 },
         };
-        RunBuilderTest(reporter, builder, set7, SK_ARRAY_COUNT(set7), mergedSet7,
-                       SK_ARRAY_COUNT(mergedSet7));
+        RunBuilderTest(reporter, builder, set7, std::size(set7), mergedSet7,
+                       std::size(mergedSet7));
     }
 
     // This unit test verifies blob bounds computation.
@@ -154,7 +173,6 @@ public:
         {
             // Exercise the empty bounds path, and ensure that RunRecord-aligned pos buffers
             // don't trigger asserts (http://crbug.com/542643).
-            SkFont font;
             font.setSize(0);
 
             const char* txt = "BOOO";
@@ -228,13 +246,8 @@ private:
                                const RunDef out[], unsigned outCount) {
         SkFont font;
 
-        unsigned glyphCount = 0;
-        unsigned posCount = 0;
-
         for (unsigned i = 0; i < inCount; ++i) {
             AddRun(font, in[i].count, in[i].pos, SkPoint::Make(in[i].x, in[i].y), builder);
-            glyphCount += in[i].count;
-            posCount += in[i].count * in[i].pos;
         }
 
         sk_sp<SkTextBlob> blob(builder.make());
@@ -349,10 +362,6 @@ DEF_TEST(TextBlob_extended, reporter) {
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
-#include "include/core/SkCanvas.h"
-#include "include/core/SkSurface.h"
-#include "include/private/SkTArray.h"
-
 static void add_run(SkTextBlobBuilder* builder, const char text[], SkScalar x, SkScalar y,
                     sk_sp<SkTypeface> tf) {
     SkFont font;

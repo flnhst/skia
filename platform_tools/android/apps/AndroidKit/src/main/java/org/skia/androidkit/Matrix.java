@@ -7,6 +7,8 @@
 
 package org.skia.androidkit;
 
+import android.util.Log;
+
 /*
  * 4x4 matrix backed by SkM44
  */
@@ -36,8 +38,34 @@ public class Matrix {
                                   m3, m7, m11, m15);
     }
 
-    private Matrix(long nativeInstance) {
+    Matrix(long nativeInstance) {
         mNativeInstance = nativeInstance;
+    }
+
+    public static Matrix makeLookAt(float eyeX, float eyeY, float eyeZ,
+                                float coaX, float coaY, float coaZ,
+                                float upX, float upY, float upZ) {
+        return new Matrix(nCreateLookAt(eyeX, eyeY, eyeZ,
+                                        coaX, coaY, coaZ,
+                                        upX, upY, upZ));
+    }
+
+    public static Matrix makePerspective(float near, float far, float angle) {
+        return new Matrix(nCreatePerspective(near, far, angle));
+    }
+
+    public static Matrix makeInverse(Matrix m) throws RuntimeException {
+        long nativeMatrix = nInverse(m.getNativeInstance());
+        if (nativeMatrix == 0){
+            // extend generic exception?
+            throw new RuntimeException("Matrix m was not an invertible Matrix");
+        }
+        return new Matrix(nativeMatrix);
+    }
+
+    public static Matrix makeTranspose(Matrix m) {
+        long nativeTranspose = nTranspose(m.getNativeInstance());
+        return new Matrix(nativeTranspose);
     }
 
     /*
@@ -45,7 +73,7 @@ public class Matrix {
      * B: Matrix passed in
      * Concat A * B, return new Matrix C as result
      */
-    public static Matrix Concat(Matrix a, Matrix b) {
+    public static Matrix makeConcat(Matrix a, Matrix b) {
         long nativeA = a.mNativeInstance;
         long nativeB = b.mNativeInstance;
         long nativeC = nConcat(nativeA, nativeB);
@@ -53,14 +81,32 @@ public class Matrix {
     }
 
     /*
+     * Convenience method
+     * Calls getRowMajorArray and indexes to the appropriate position
+     */
+    public float getAtRowCol(int r, int c) {
+        float[] a = this.getRowMajor();
+        return a[r*4 + c];
+    }
+
+    public float[] getRowMajor() {
+        float[] vals = nGetRowMajor(this.mNativeInstance);
+        if (vals == null) {
+            throw new RuntimeException("Cannot make native float array, out of memory");
+        }
+        return nGetRowMajor(this.mNativeInstance);
+    }
+
+    /*
      * A: this Matrix
      * B: Matrix passed in
      * Concat B * A, store result in Matrix A
      */
-    public void preConcat(Matrix b) {
+    public Matrix preConcat(Matrix b) {
         long nativeA = this.mNativeInstance;
         long nativeB = b.mNativeInstance;
         nPreConcat(nativeA, nativeB);
+        return this;
     }
 
     /*
@@ -72,6 +118,9 @@ public class Matrix {
         nTranslate(this.mNativeInstance, x, y, z);
         return this;
     }
+    public Matrix translate(float x, float y) {
+        return translate(x, y, 0);
+    }
 
     /*
      * Scales this Matrix by x, y, z
@@ -81,6 +130,9 @@ public class Matrix {
     public Matrix scale(float x, float y, float z) {
         nScale(this.mNativeInstance, x, y, z);
         return this;
+    }
+    public Matrix scale(float x, float y) {
+        return scale(x, y, 1);
     }
 
     /*
@@ -113,6 +165,16 @@ public class Matrix {
         return this;
     }
 
+    /*
+     * Rotates this Matrix along the (x,y,z) axis by rad radians
+     * Store result in caller Matrix
+     * returns reference to this Matrix for operation chaining
+     */
+    public Matrix rotate(float x, float y, float z, float rad) {
+        nRotate(this.mNativeInstance, x, y, z, rad);
+        return this;
+    }
+
     /**
      * Releases any resources associated with this Matrix.
      */
@@ -133,11 +195,17 @@ public class Matrix {
                                        float m1, float m5, float m9,  float m13,
                                        float m2, float m6, float m10, float m14,
                                        float m3, float m7, float m11, float m15);
-    private static native void nRelease(long nativeInstance);
-
-    private static native void nPreConcat(long mNativeInstanceA, long mNativeInstanceB);
-    private static native long nConcat(long mNativeInstanceA, long mNativeInstanceB);
-    private static native void nTranslate(long mNativeInstance, float x, float y, float z);
-    private static native void nScale(long mNativeInstance, float x, float y, float z);
-    private static native void nRotate(long mNativeInstance, float x, float y, float z, float rad);
+    private static native long nCreateLookAt(float eyeX, float eyeY, float eyeZ,
+                                             float coaX, float coaY, float coaZ,
+                                             float upX, float upY, float upZ);
+    private static native long    nCreatePerspective(float near, float far, float angle);
+    private static native void    nRelease(long nativeInstance);
+    private static native float[] nGetRowMajor(long mNativeInstance);
+    private static native long    nInverse(long mNativeInstance);
+    private static native long    nTranspose(long mNativeInstance);
+    private static native void    nPreConcat(long mNativeInstanceA, long mNativeInstanceB);
+    private static native long    nConcat(long mNativeInstanceA, long mNativeInstanceB);
+    private static native void    nTranslate(long mNativeInstance, float x, float y, float z);
+    private static native void    nScale(long mNativeInstance, float x, float y, float z);
+    private static native void    nRotate(long mNativeInstance, float x, float y, float z, float rad);
 }

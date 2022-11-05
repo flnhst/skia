@@ -5,13 +5,25 @@
  * found in the LICENSE file.
  */
 
+#include "include/core/SkAlphaType.h"
 #include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkColorSpace.h"
+#include "include/core/SkColorType.h"
 #include "include/core/SkData.h"
-
 #include "include/core/SkGraphics.h"
+#include "include/core/SkImage.h"
 #include "include/core/SkImageGenerator.h"
-#include "include/private/SkImageInfoPriv.h"
+#include "include/core/SkImageInfo.h"
+#include "include/core/SkPicture.h"
+#include "include/core/SkPictureRecorder.h"
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkYUVAInfo.h"
+#include "include/core/SkYUVAPixmaps.h"
+#include "src/core/SkAutoMalloc.h"
 #include "tests/Test.h"
+
+#include <memory>
 
 #if defined(SK_BUILD_FOR_MAC) || defined(SK_BUILD_FOR_IOS)
     #include "include/ports/SkImageGeneratorCG.h"
@@ -76,13 +88,10 @@ DEF_TEST(ImageGenerator, reporter) {
     ig.getYUVAPlanes(yuvaPixmaps);
 
     // Suppressed due to https://code.google.com/p/skia/issues/detail?id=4339
-    if (false) {
+    if ((false)) {
         test_imagegenerator_factory(reporter);
     }
 }
-
-#include "include/core/SkPictureRecorder.h"
-#include "src/core/SkAutoMalloc.h"
 
 static sk_sp<SkPicture> make_picture() {
     SkPictureRecorder recorder;

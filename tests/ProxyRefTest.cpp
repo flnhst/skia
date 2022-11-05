@@ -7,18 +7,26 @@
 
 // This is a GPU-backend specific test.
 
-#include "tests/Test.h"
-
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkTypes.h"
+#include "include/gpu/GrBackendSurface.h"
 #include "include/gpu/GrDirectContext.h"
-#include "src/gpu/GrDirectContextPriv.h"
-#include "src/gpu/GrProxyProvider.h"
-#include "src/gpu/GrRecordingContextPriv.h"
-#include "src/gpu/GrRenderTargetProxy.h"
-#include "src/gpu/GrResourceProvider.h"
-#include "src/gpu/GrSurfaceProxy.h"
-#include "src/gpu/GrTexture.h"
-#include "src/gpu/GrTextureProxy.h"
+#include "include/gpu/GrRecordingContext.h"
+#include "include/gpu/GrTypes.h"
+#include "include/private/gpu/ganesh/GrTypesPriv.h"
+#include "src/gpu/ganesh/GrCaps.h"
+#include "src/gpu/ganesh/GrDirectContextPriv.h"
+#include "src/gpu/ganesh/GrProxyProvider.h"
+#include "src/gpu/ganesh/GrRecordingContextPriv.h"
+#include "src/gpu/ganesh/GrTextureProxy.h"
+#include "tests/CtsEnforcement.h"
+#include "tests/Test.h"
 #include "tests/TestUtils.h"
+
+#include <initializer_list>
+
+class GrResourceProvider;
+struct GrContextOptions;
 
 static const int kWidthHeight = 128;
 
@@ -30,7 +38,7 @@ static sk_sp<GrTextureProxy> make_deferred(GrRecordingContext* rContext) {
                                                                  GrRenderable::kYes);
     return proxyProvider->createProxy(format, {kWidthHeight, kWidthHeight}, GrRenderable::kYes, 1,
                                       GrMipmapped::kNo, SkBackingFit::kApprox, SkBudgeted::kYes,
-                                      GrProtected::kNo);
+                                      GrProtected::kNo, /*label=*/"ProxyRefTest");
 }
 
 static sk_sp<GrTextureProxy> make_wrapped(GrRecordingContext* rContext) {
@@ -41,7 +49,10 @@ static sk_sp<GrTextureProxy> make_wrapped(GrRecordingContext* rContext) {
             SkBackingFit::kExact, SkBudgeted::kNo, GrProtected::kNo);
 }
 
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(ProxyRefTest, reporter, ctxInfo) {
+DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(ProxyRefTest,
+                                       reporter,
+                                       ctxInfo,
+                                       CtsEnforcement::kApiLevel_T) {
     auto dContext = ctxInfo.directContext();
     GrResourceProvider* resourceProvider = dContext->priv().resourceProvider();
 

@@ -5,18 +5,27 @@
  * found in the LICENSE file.
  */
 
+#include "include/core/SkBBHFactory.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
+#include "include/core/SkImageFilter.h"
+#include "include/core/SkM44.h"
+#include "include/core/SkMatrix.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkPicture.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkSurface.h"
+#include "include/effects/SkImageFilters.h"
+#include "include/private/SkTemplates.h"
+#include "src/core/SkRecord.h"
+#include "src/core/SkRecordDraw.h"
+#include "src/core/SkRecorder.h"
+#include "src/core/SkRecords.h"
 #include "tests/RecordTestUtils.h"
 #include "tests/Test.h"
 
-#include "include/core/SkSurface.h"
-#include "include/effects/SkImageFilters.h"
-#include "src/core/SkImagePriv.h"
-#include "src/core/SkRecord.h"
-#include "src/core/SkRecordDraw.h"
-#include "src/core/SkRecordOpts.h"
-#include "src/core/SkRecorder.h"
-#include "src/core/SkRecords.h"
-#include "tools/debugger/DebugCanvas.h"
+class SkImage;
 
 static const int W = 1920, H = 1080;
 
@@ -199,13 +208,18 @@ DEF_TEST(RecordDraw_SaveLayerAffectsClipBounds, r) {
     //
     // The second bug showed up as adjusting the picture bounds (0,0,50,50) by the drop shadow too.
     // The saveLayer, clipRect, and restore bounds were incorrectly (0,0,70,50).
+    //
+    // Now, all recorded bounds should be (0,0,40,40), representing the union of the original
+    // draw/clip (0,0,20,40) with the 20px offset drop shadow along the x-axis (20,0,40,40).
+    // The saveLayer and restore match the output bounds of the drop shadow filter, instead of
+    // expanding to fill the entire picture.
     SkAutoTMalloc<SkRect> bounds(record.count());
     SkAutoTMalloc<SkBBoxHierarchy::Metadata> meta(record.count());
     SkRecordFillBounds(SkRect::MakeWH(50, 50), record, bounds, meta);
-    REPORTER_ASSERT(r, sloppy_rect_eq(bounds[0], SkRect::MakeLTRB(0, 0, 50, 50)));
-    REPORTER_ASSERT(r, sloppy_rect_eq(bounds[1], SkRect::MakeLTRB(0, 0, 50, 50)));
+    REPORTER_ASSERT(r, sloppy_rect_eq(bounds[0], SkRect::MakeLTRB(0, 0, 40, 40)));
+    REPORTER_ASSERT(r, sloppy_rect_eq(bounds[1], SkRect::MakeLTRB(0, 0, 40, 40)));
     REPORTER_ASSERT(r, sloppy_rect_eq(bounds[2], SkRect::MakeLTRB(0, 0, 40, 40)));
-    REPORTER_ASSERT(r, sloppy_rect_eq(bounds[3], SkRect::MakeLTRB(0, 0, 50, 50)));
+    REPORTER_ASSERT(r, sloppy_rect_eq(bounds[3], SkRect::MakeLTRB(0, 0, 40, 40)));
 }
 
 DEF_TEST(RecordDraw_Metadata, r) {

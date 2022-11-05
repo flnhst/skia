@@ -1,10 +1,9 @@
 // Copyright 2018 Google LLC.
 // Use of this source code is governed by a BSD-style license that can be found in the LICENSE file.
 
-#include "include/private/SkTFitsIn.h"
 #include "src/utils/SkUTF.h"
 
-#include <climits>
+#include "include/private/SkTFitsIn.h"
 
 static constexpr inline int32_t left_shift(int32_t value, int32_t shift) {
     return (int32_t) ((uint32_t) value << shift);
@@ -46,7 +45,7 @@ static bool utf8_byte_is_continuation(uint8_t c) { return utf8_byte_type(c) == 0
 ////////////////////////////////////////////////////////////////////////////////
 
 int SkUTF::CountUTF8(const char* utf8, size_t byteLength) {
-    if (!utf8) {
+    if (!utf8 && byteLength) {
         return -1;
     }
     int count = 0;

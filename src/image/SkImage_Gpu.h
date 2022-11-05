@@ -10,9 +10,9 @@
 
 #include "include/private/SkSpinlock.h"
 #include "src/core/SkImagePriv.h"
-#include "src/gpu/GrGpuResourcePriv.h"
-#include "src/gpu/GrSurfaceProxyPriv.h"
-#include "src/gpu/GrSurfaceProxyView.h"
+#include "src/gpu/ganesh/GrGpuResourcePriv.h"
+#include "src/gpu/ganesh/GrSurfaceProxyPriv.h"
+#include "src/gpu/ganesh/GrSurfaceProxyView.h"
 #include "src/image/SkImage_GpuBase.h"
 
 class GrDirectContext;
@@ -41,12 +41,12 @@ public:
 
     bool onHasMipmaps() const override;
 
-    GrSemaphoresSubmitted onFlush(GrDirectContext*, const GrFlushInfo&) override;
+    GrSemaphoresSubmitted onFlush(GrDirectContext*, const GrFlushInfo&) const override;
 
     GrBackendTexture onGetBackendTexture(bool flushPendingGrContextIO,
                                          GrSurfaceOrigin* origin) const final;
 
-    bool onIsTextureBacked() const override { return true; }
+    bool isGaneshBacked() const override { return true; }
 
     size_t onTextureSize() const override;
 
@@ -55,21 +55,26 @@ public:
 
     sk_sp<SkImage> onReinterpretColorSpace(sk_sp<SkColorSpace>) const final;
 
+    void onAsyncReadPixels(const SkImageInfo&,
+                           SkIRect srcRect,
+                           ReadPixelsCallback,
+                           ReadPixelsContext) const override;
+
     void onAsyncRescaleAndReadPixels(const SkImageInfo&,
-                                     const SkIRect& srcRect,
+                                     SkIRect srcRect,
                                      RescaleGamma,
                                      RescaleMode,
                                      ReadPixelsCallback,
-                                     ReadPixelsContext) override;
+                                     ReadPixelsContext) const override;
 
     void onAsyncRescaleAndReadPixelsYUV420(SkYUVColorSpace,
                                            sk_sp<SkColorSpace>,
-                                           const SkIRect& srcRect,
-                                           const SkISize& dstSize,
+                                           SkIRect srcRect,
+                                           SkISize dstSize,
                                            RescaleGamma,
                                            RescaleMode,
                                            ReadPixelsCallback,
-                                           ReadPixelsContext) override;
+                                           ReadPixelsContext) const override;
 
     void generatingSurfaceIsDeleted() override;
 
@@ -85,9 +90,14 @@ private:
                                                          GrMipmapped,
                                                          GrImageTexGenPolicy) const override;
 
+#ifdef SK_GRAPHITE_ENABLED
+    sk_sp<SkImage> onMakeTextureImage(skgpu::graphite::Recorder*,
+                                      RequiredImageProperties) const override;
+#endif
+
     std::unique_ptr<GrFragmentProcessor> onAsFragmentProcessor(GrRecordingContext*,
                                                                SkSamplingOptions,
-                                                               const SkTileMode[],
+                                                               const SkTileMode[2],
                                                                const SkMatrix&,
                                                                const SkRect*,
                                                                const SkRect*) const override;
@@ -139,7 +149,7 @@ private:
     };
 
     mutable ProxyChooser fChooser;
-    GrSwizzle fSwizzle;
+    skgpu::Swizzle fSwizzle;
     GrSurfaceOrigin fOrigin;
 
     using INHERITED = SkImage_GpuBase;

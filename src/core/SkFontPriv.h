@@ -32,7 +32,7 @@ public:
      *  constraints, but since we ask for unhinted paths, the two values
      *  need not match per-se.
      */
-    static constexpr int kCanonicalTextSizeForPaths  = 64;
+    inline static constexpr int kCanonicalTextSizeForPaths  = 64;
 
     /**
      *  Return a matrix that applies the paint's text values: size, scale, skew
@@ -64,6 +64,16 @@ public:
      */
     static SkRect GetFontBounds(const SkFont&);
 
+    /** Return the approximate largest dimension of typical text when transformed by the matrix.
+     *
+     * @param matrix  used to transform size
+     * @param textLocation  location of the text prior to matrix transformation. Used if the
+     *                      matrix has perspective.
+     * @return  typical largest dimension
+     */
+    static SkScalar ApproximateTransformedTextSize(const SkFont& font, const SkMatrix& matrix,
+                                                   const SkPoint& textLocation);
+
     static bool IsFinite(const SkFont& font) {
         return SkScalarIsFinite(font.getSize()) &&
                SkScalarIsFinite(font.getScaleX()) &&
@@ -86,7 +96,7 @@ public:
     SkAutoToGlyphs(const SkFont& font, const void* text, size_t length, SkTextEncoding encoding) {
         if (encoding == SkTextEncoding::kGlyphID || length == 0) {
             fGlyphs = reinterpret_cast<const uint16_t*>(text);
-            fCount = length >> 1;
+            fCount = SkToInt(length >> 1);
         } else {
             fCount = font.countText(text, length, encoding);
             if (fCount < 0) {

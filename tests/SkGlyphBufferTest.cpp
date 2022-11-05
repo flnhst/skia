@@ -5,11 +5,20 @@
  * found in the LICENSE file.
  */
 
+#include "include/core/SkMatrix.h"
+#include "include/core/SkPoint.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkTypes.h"
 #include "src/core/SkEnumerate.h"
+#include "src/core/SkGlyph.h"
 #include "src/core/SkGlyphBuffer.h"
-#include "src/core/SkGlyphRunPainter.h"
-#include "src/core/SkScalerContext.h"
+#include "src/core/SkZip.h"
 #include "tests/Test.h"
+
+#include <cstddef>
+#include <cstdint>
+#include <initializer_list>
+#include <tuple>
 
 DEF_TEST(SkPackedGlyphIDCtor, reporter) {
     using PG = SkPackedGlyphID;
@@ -24,7 +33,7 @@ DEF_TEST(SkPackedGlyphIDCtor, reporter) {
 
     {
         // Normal sub-pixel with y-axis snapping.
-        auto roundingSpec = SkGlyphPositionRoundingSpec(true, kX_SkAxisAlignment);
+        auto roundingSpec = SkGlyphPositionRoundingSpec(true, SkAxisAlignment::kX);
         SkIPoint mask = roundingSpec.ignorePositionFieldMask;
         for (int x = -testLimit; x < testLimit; x++) {
             float fx = x * step;
@@ -40,7 +49,7 @@ DEF_TEST(SkPackedGlyphIDCtor, reporter) {
 
     {
         // No subpixel positioning.
-        auto roundingSpec = SkGlyphPositionRoundingSpec(false, kNone_SkAxisAlignment);
+        auto roundingSpec = SkGlyphPositionRoundingSpec(false, SkAxisAlignment::kNone);
         SkIPoint mask = roundingSpec.ignorePositionFieldMask;
         for (int y = -testLimit; y < testLimit; y++) {
             for (int x = -testLimit; x < testLimit; x++) {
@@ -57,7 +66,7 @@ DEF_TEST(SkPackedGlyphIDCtor, reporter) {
 
     {
         // Subpixel with no axis snapping.
-        auto roundingSpec = SkGlyphPositionRoundingSpec(true, kNone_SkAxisAlignment);
+        auto roundingSpec = SkGlyphPositionRoundingSpec(true, SkAxisAlignment::kNone);
         SkIPoint mask = roundingSpec.ignorePositionFieldMask;
         for (int y = -testLimit; y < testLimit; y++) {
             for (int x = -testLimit; x < testLimit; x++) {
@@ -79,7 +88,7 @@ DEF_TEST(SkPackedGlyphIDCtor, reporter) {
         // Distance is 2^21 - 2 (because the test is on the interval [-2, 2).
         const uint32_t kLogLargeDistance = 24 - PG::kSubPixelPosLen - 1;
         const int64_t kLargeDistance = (1ull << kLogLargeDistance) - 2;
-        auto roundingSpec = SkGlyphPositionRoundingSpec(true, kNone_SkAxisAlignment);
+        auto roundingSpec = SkGlyphPositionRoundingSpec(true, SkAxisAlignment::kNone);
         SkIPoint mask = roundingSpec.ignorePositionFieldMask;
         for (int y = -32; y < 33; y++) {
             for (int x = -32; x < 33; x++) {
@@ -109,9 +118,8 @@ DEF_TEST(SkSourceGlyphBufferBasic, reporter) {
     }
     // Reject a couple of glyphs.
     rejects.reject(1);
-    rejects.reject(2, 100);
+    rejects.reject(2);
     rejects.flipRejectsToSource();
-    REPORTER_ASSERT(reporter, rejects.rejectedMaxDimension() == 100);
     for (auto [i, glyphID, pos] : SkMakeEnumerate(rejects.source())) {
         // This will index 1 and 2 from the original source.
         size_t j = i + 1;
@@ -120,9 +128,8 @@ DEF_TEST(SkSourceGlyphBufferBasic, reporter) {
     }
 
     // Reject an additional glyph
-    rejects.reject(0, 10);
+    rejects.reject(0);
     rejects.flipRejectsToSource();
-    REPORTER_ASSERT(reporter, rejects.rejectedMaxDimension() == 10);
     for (auto [i, glyphID, pos] : SkMakeEnumerate(rejects.source())) {
         // This will index 1 from the original source.
         size_t j = i + 1;
@@ -139,9 +146,8 @@ DEF_TEST(SkSourceGlyphBufferBasic, reporter) {
 
     // Check that everything is working after calling setSource.
     rejects.reject(1);
-    rejects.reject(2, 100);
+    rejects.reject(2);
     rejects.flipRejectsToSource();
-    REPORTER_ASSERT(reporter, rejects.rejectedMaxDimension() == 100);
     for (auto [i, glyphID, pos] : SkMakeEnumerate(rejects.source())) {
         // This will index 1 and 2 from the original source.
         size_t j = i + 1;
@@ -158,37 +164,41 @@ DEF_TEST(SkDrawableGlyphBufferBasic, reporter) {
     auto source = SkMakeZip(glyphIDs, positions);
 
     {
-        SkDrawableGlyphBuffer drawable;
-        drawable.ensureSize(100);
-        drawable.startSource(source);
-        for (auto [i, packedID, pos] : SkMakeEnumerate(drawable.input())) {
+        SkDrawableGlyphBuffer accepted;
+        accepted.ensureSize(100);
+        accepted.startSource(source);
+        for (auto [i, packedID, pos] : SkMakeEnumerate(accepted.input())) {
             REPORTER_ASSERT(reporter, packedID.packedID().glyphID() == glyphIDs[i]);
             REPORTER_ASSERT(reporter, pos == positions[i]);
         }
     }
 
     {
-        SkDrawableGlyphBuffer drawable;
-        drawable.ensureSize(100);
+        SkDrawableGlyphBuffer accepted;
+        accepted.ensureSize(100);
         SkMatrix matrix = SkMatrix::Scale(0.5, 0.5);
-        SkGlyphPositionRoundingSpec rounding{true, kX_SkAxisAlignment};
-        drawable.startBitmapDevice(source, {100, 100}, matrix, rounding);
-        for (auto [i, packedID, pos] : SkMakeEnumerate(drawable.input())) {
+        SkGlyphPositionRoundingSpec rounding{true, SkAxisAlignment::kX};
+        SkMatrix positionMatrix{matrix};
+        positionMatrix.preTranslate(100, 100);
+        accepted.startDevicePositioning(source, positionMatrix, rounding);
+        for (auto [i, packedID, pos] : SkMakeEnumerate(accepted.input())) {
             REPORTER_ASSERT(reporter, glyphIDs[i] == packedID.packedID().glyphID());
             REPORTER_ASSERT(reporter,
-                    pos.x() == positions[i].x() * 0.5 + 50 + SkPackedGlyphID::kSubpixelRound);
-            REPORTER_ASSERT(reporter, pos.y() == positions[i].y() * 0.5 + 50 + 0.5);
+                pos.x() == SkScalarFloorToInt(positions[i].x() * 0.5 + 50 +
+                                              SkPackedGlyphID::kSubpixelRound));
+            REPORTER_ASSERT(reporter,
+                            pos.y() == SkScalarFloorToInt(positions[i].y() * 0.5 + 50 + 0.5));
         }
     }
 
     {
-        SkDrawableGlyphBuffer drawable;
-        drawable.ensureSize(100);
-        drawable.startSource(source);
-        for (auto [i, packedID, pos] : SkMakeEnumerate(drawable.input())) {
-            drawable.push_back(&glyphs[i], i);
+        SkDrawableGlyphBuffer accepted;
+        accepted.ensureSize(100);
+        accepted.startSource(source);
+        for (auto [i, packedID, pos] : SkMakeEnumerate(accepted.input())) {
+            accepted.accept(&glyphs[i], i);
         }
-        for (auto [i, glyph, pos] : SkMakeEnumerate(drawable.drawable())) {
+        for (auto [i, glyph, pos] : SkMakeEnumerate(accepted.accepted())) {
             REPORTER_ASSERT(reporter, glyph.glyph() == &glyphs[i]);
         }
     }

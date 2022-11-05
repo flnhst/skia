@@ -6,17 +6,23 @@
  */
 
 #include "include/core/SkRefCnt.h"
+#include "include/core/SkSpan.h"
+#include "include/private/SkTemplates.h"
 #include "include/utils/SkRandom.h"
 #include "src/core/SkEnumerate.h"
-#include "src/core/SkSpan.h"
 #include "src/core/SkTSearch.h"
 #include "src/core/SkTSort.h"
 #include "src/core/SkZip.h"
 #include "tests/Test.h"
 
 #include <array>
+#include <cstddef>
+#include <cstdint>
 #include <initializer_list>
+#include <memory>
+#include <new>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 class RefClass : public SkRefCnt {
@@ -175,57 +181,6 @@ DEF_TEST(Utils, reporter) {
     test_autostarray(reporter);
 }
 
-DEF_TEST(SkSpan, reporter) {
-    // Test constness preservation for SkMakeSpan.
-    {
-        std::vector<int> v = {{1, 2, 3, 4, 5}};
-        auto s = SkSpan(v);
-        REPORTER_ASSERT(reporter, s[3] == 4);
-        s[3] = 100;
-        REPORTER_ASSERT(reporter, s[3] == 100);
-    }
-
-    {
-        std::vector<int> t = {{1, 2, 3, 4, 5}};
-        const std::vector<int>& v = t;
-        auto s = SkSpan(v);
-        //s[3] = 100; // Should fail to compile
-        REPORTER_ASSERT(reporter, s[3] == 4);
-        REPORTER_ASSERT(reporter, t[3] == 4);
-        t[3] = 100;
-        REPORTER_ASSERT(reporter, s[3] == 100);
-    }
-
-    {
-        std::array<int, 5> v = {{1, 2, 3, 4, 5}};
-        auto s = SkSpan(v);
-        REPORTER_ASSERT(reporter, s[3] == 4);
-        s[3] = 100;
-        REPORTER_ASSERT(reporter, s[3] == 100);
-        auto s1 = s.subspan(1,3);
-        REPORTER_ASSERT(reporter, s1.size() == 3);
-        REPORTER_ASSERT(reporter, s1.front() == 2);
-        REPORTER_ASSERT(reporter, s1.back() == 100);
-    }
-
-    {
-        std::array<int, 5> t = {{1, 2, 3, 4, 5}};
-        const std::array<int, 5>& v = t;
-        auto s = SkSpan(v);
-        //s[3] = 100; // Should fail to compile
-        REPORTER_ASSERT(reporter, s[3] == 4);
-        REPORTER_ASSERT(reporter, t[3] == 4);
-        t[3] = 100;
-        REPORTER_ASSERT(reporter, s[3] == 100);
-    }
-
-    {
-        std::vector<int> v;
-        auto s = SkSpan(v);
-        REPORTER_ASSERT(reporter, s.empty());
-    }
-}
-
 DEF_TEST(SkEnumerate, reporter) {
 
     int A[] = {1, 2, 3, 4};
@@ -297,7 +252,7 @@ DEF_TEST(SkEnumerate, reporter) {
         };
 
         I is[10];
-        SkSpan s{is};
+        auto s = SkSpan(is);
         for (auto [i, v] : SkMakeEnumerate(s)) {
             new (&v) I(i);
         }
@@ -311,7 +266,7 @@ DEF_TEST(SkEnumerate, reporter) {
     {
         std::unique_ptr<int> is[10];
         std::unique_ptr<int> os[10];
-        SkSpan s{is};
+        auto s = SkSpan(is);
         for (auto [i, v] : SkMakeEnumerate(s)) {
             v = std::make_unique<int>(i);
         }
@@ -329,7 +284,7 @@ DEF_TEST(SkEnumerate, reporter) {
     {
         std::unique_ptr<int> is[10];
         std::unique_ptr<int> os[10];
-        SkSpan s{is};
+        auto s = SkSpan(is);
         for (auto [i, v] : SkMakeEnumerate(s)) {
             v = std::make_unique<int>(i);
         }

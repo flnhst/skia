@@ -24,6 +24,10 @@ class SkSurface;
 class SkSurfaceProps;
 class SkString;
 
+namespace skgpu::graphite {
+class Context;
+}
+
 namespace sk_app {
 
 class WindowContext;
@@ -60,12 +64,18 @@ public:
 #endif
 #ifdef SK_DAWN
         kDawn_BackendType,
+#ifdef SK_GRAPHITE_ENABLED
+        kGraphiteDawn_BackendType,
+#endif
 #endif
 #ifdef SK_VULKAN
         kVulkan_BackendType,
 #endif
 #ifdef SK_METAL
         kMetal_BackendType,
+#ifdef SK_GRAPHITE_ENABLED
+        kGraphiteMetal_BackendType,
+#endif
 #endif
 #ifdef SK_DIRECT3D
         kDirect3D_BackendType,
@@ -144,6 +154,7 @@ public:
 
     // Returns null if there is not a GPU backend or if the backend is not yet created.
     GrDirectContext* directContext() const;
+    skgpu::graphite::Context* graphiteContext() const;
 
 protected:
     Window();

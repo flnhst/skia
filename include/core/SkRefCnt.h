@@ -9,6 +9,7 @@
 #define SkRefCnt_DEFINED
 
 #include "include/core/SkTypes.h"
+#include "include/private/SkTemplates.h"
 
 #include <atomic>       // std::atomic, std::memory_order_*
 #include <cstddef>      // std::nullptr_t
@@ -173,7 +174,7 @@ public:
 
     bool unique() const { return 1 == fRefCnt.load(std::memory_order_acquire); }
     void ref() const { (void)fRefCnt.fetch_add(+1, std::memory_order_relaxed); }
-    void  unref() const {
+    void unref() const {
         if (1 == fRefCnt.fetch_add(-1, std::memory_order_acq_rel)) {
             // restore the 1 for our destructor's assert
             SkDEBUGCODE(fRefCnt.store(1, std::memory_order_relaxed));
@@ -211,8 +212,17 @@ private:
  *  This can be used for classes inheriting from SkRefCnt, but it also works for other
  *  classes that match the interface, but have different internal choices: e.g. the hosted class
  *  may have its ref/unref be thread-safe, but that is not assumed/imposed by sk_sp.
+ *
+ *  Declared with the trivial_abi attribute where supported so that sk_sp and types containing it
+ *  may be considered as trivially relocatable by the compiler so that destroying-move operations
+ *  i.e. move constructor followed by destructor can be optimized to memcpy.
  */
-template <typename T> class sk_sp {
+#if defined(__clang__) && defined(__has_cpp_attribute) && __has_cpp_attribute(clang::trivial_abi)
+#define SK_SP_TRIVIAL_ABI [[clang::trivial_abi]]
+#else
+#define SK_SP_TRIVIAL_ABI
+#endif
+template <typename T> class SK_SP_TRIVIAL_ABI sk_sp {
 public:
     using element_type = T;
 
@@ -326,6 +336,8 @@ public:
         using std::swap;
         swap(fPtr, that.fPtr);
     }
+
+    using sk_is_trivially_relocatable = std::true_type;
 
 private:
     T*  fPtr;

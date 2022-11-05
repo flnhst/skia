@@ -15,6 +15,7 @@
 #include <vector>
 
 class SkCanvas;
+class SkImage;
 class SkStreamSeekable;
 class SkSurface;
 
@@ -60,6 +61,22 @@ public:
      */
     void allocateLayers(SkCanvas*);
 
+    /**
+     * A set of IDs of offscreen layers in no particular order. If frame value >= 0 is specified
+     * then the layer set is filtered to layers used by that frame (or empty if >= numFrames). If
+     * < 0 then gathers all the layers across all frames.
+     */
+    std::vector<int> layerIDs(int frame = -1) const;
+
+    /**
+     * Gets the contents of an offscreen layer. It's contents will depend on current playback state
+     * (playFrame(), updateFrameLayers(), resetLayers()). If the layer currently has no backing
+     * store because it hasn't been drawn or resetLayers() was called then this will return nullptr.
+     * Layer contents are not affected by rewindLayers() as that simply lazily redraws the frame
+     * contents the next time it is required by playFrame*() or updateFrameLayers().
+     */
+    sk_sp<SkImage> layerSnapshot(int layerID) const;
+
 private:
     MSKPPlayer() = default;
     // noncopyable, nonmoveable.
@@ -78,9 +95,9 @@ private:
     struct DrawLayerCmd;
 
     // The commands for a root/offscreen layer and dimensions of the layer.
-    struct Layer {
-        Layer() = default;
-        Layer(Layer&&) = default;
+    struct LayerCmds {
+        LayerCmds() = default;
+        LayerCmds(LayerCmds&&) = default;
         SkISize fDimensions;
         std::vector<std::unique_ptr<Cmd>> fCmds;
     };
@@ -91,17 +108,19 @@ private:
         sk_sp<SkSurface> fSurface;
     };
 
-    static sk_sp<SkSurface> MakeSurfaceForLayer(const Layer&, SkCanvas* rootCanvas);
+    static sk_sp<SkSurface> MakeSurfaceForLayer(const LayerCmds&, SkCanvas* rootCanvas);
 
-    // MSKP layer ID -> Layer
-    using LayerMap = std::unordered_map<int, Layer>;
+    void collectReferencedLayers(const LayerCmds& layer, std::vector<int>*) const;
+
+    // MSKP layer ID -> LayerCmds
+    using LayerMap = std::unordered_map<int, LayerCmds>;
     // MSKP layer ID -> LayerState
     using LayerStateMap = std::unordered_map<int, LayerState>;
 
     /**
      * A SkCanvas that consumes the SkPicture and records Cmds into a Layer. It will spawn
      * additional Layers and record nested SkPictures into those using additional CmdRecordCanvas
-     * CmdRecordCanvas instances. It needs access to fOffscreenLayers to create and update Layer
+     * CmdRecordCanvas instances. It needs access to fOffscreenLayers to create and update LayerCmds
      * structs for offscreen layers.
      */
     class CmdRecordCanvas;
@@ -110,7 +129,7 @@ private:
     LayerMap           fOffscreenLayers;         // All the offscreen layers for all frames.
     LayerStateMap      fOffscreenLayerStates;    // Current surfaces and command idx for offscreen
                                                  // layers
-    std::vector<Layer> fRootLayers;              // One root layer for each frame.
+    std::vector<LayerCmds> fRootLayers;          // One root layer for each frame.
 };
 
 #endif

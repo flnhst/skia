@@ -5,17 +5,43 @@
  * found in the LICENSE file.
  */
 
-#include "tests/Test.h"
-
+#include "include/core/SkAlphaType.h"
+#include "include/core/SkCanvas.h"
+#include "include/core/SkColor.h"
 #include "include/core/SkColorFilter.h"
+#include "include/core/SkColorSpace.h"
+#include "include/core/SkColorType.h"
+#include "include/core/SkDeferredDisplayListRecorder.h"
+#include "include/core/SkImage.h"
+#include "include/core/SkImageInfo.h"
+#include "include/core/SkPaint.h"
 #include "include/core/SkPromiseImageTexture.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkSamplingOptions.h"
+#include "include/core/SkShader.h"
+#include "include/core/SkSurface.h"
+#include "include/core/SkTypes.h"
 #include "include/gpu/GrBackendSurface.h"
 #include "include/gpu/GrDirectContext.h"
-#include "src/gpu/GrDirectContextPriv.h"
-#include "src/gpu/GrGpu.h"
-#include "src/gpu/GrTexture.h"
+#include "include/gpu/GrTypes.h"
+#include "include/private/SkTArray.h"
+#include "include/private/gpu/ganesh/GrTypesPriv.h"
+#include "src/gpu/ganesh/GrCaps.h"
+#include "src/gpu/ganesh/GrDirectContextPriv.h"
+#include "src/gpu/ganesh/GrResourceProvider.h"
+#include "src/gpu/ganesh/GrTexture.h"
 #include "src/image/SkImage_Gpu.h"
+#include "tests/CtsEnforcement.h"
+#include "tests/Test.h"
+#include "tools/gpu/FenceSync.h"
 #include "tools/gpu/ManagedBackendTexture.h"
+
+#include <cstddef>
+#include <functional>
+#include <utility>
+
+struct GrContextOptions;
 
 using namespace sk_gpu_test;
 
@@ -31,16 +57,6 @@ struct PromiseTextureChecker {
     bool fShared;
     int fFulfillCount = 0;
     int fReleaseCount = 0;
-
-    /**
-     * Releases the SkPromiseImageTexture. Used to test that cached GrTexture representations
-     * in the cache are freed.
-     */
-    void releaseTexture() { fTexture.reset(); }
-
-    SkTArray<GrUniqueKey> uniqueKeys() const {
-        return fTexture->testingOnly_uniqueKeysToInvalidate();
-    }
 
     static sk_sp<SkPromiseImageTexture> Fulfill(void* self) {
         auto checker = static_cast<PromiseTextureChecker*>(self);
@@ -124,15 +140,22 @@ static void check_all_done(skiatest::Reporter* reporter,
                                    ReleaseBalanceExpectation::kBalanced);
 }
 
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(PromiseImageTest, reporter, ctxInfo) {
+DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(PromiseImageTest,
+                                       reporter,
+                                       ctxInfo,
+                                       CtsEnforcement::kNever) {
     const int kWidth = 10;
     const int kHeight = 10;
 
     auto ctx = ctxInfo.directContext();
 
-    GrBackendTexture backendTex = ctx->createBackendTexture(
-            kWidth, kHeight, kRGBA_8888_SkColorType,
-            SkColors::kTransparent, GrMipmapped::kNo, GrRenderable::kYes, GrProtected::kNo);
+    GrBackendTexture backendTex = ctx->createBackendTexture(kWidth,
+                                                            kHeight,
+                                                            kRGBA_8888_SkColorType,
+                                                            SkColors::kTransparent,
+                                                            GrMipmapped::kNo,
+                                                            GrRenderable::kYes,
+                                                            GrProtected::kNo);
     REPORTER_ASSERT(reporter, backendTex.isValid());
 
     GrBackendFormat backendFormat = backendTex.getBackendFormat();
@@ -194,7 +217,7 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(PromiseImageTest, reporter, ctxInfo) {
     ctx->deleteBackendTexture(backendTex);
 }
 
-DEF_GPUTEST(PromiseImageTextureShutdown, reporter, ctxInfo) {
+DEF_GANESH_TEST(PromiseImageTextureShutdown, reporter, ctxInfo, CtsEnforcement::kNever) {
     const int kWidth = 10;
     const int kHeight = 10;
 
@@ -274,15 +297,22 @@ DEF_GPUTEST(PromiseImageTextureShutdown, reporter, ctxInfo) {
     }
 }
 
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(PromiseImageTextureFullCache, reporter, ctxInfo) {
+DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(PromiseImageTextureFullCache,
+                                       reporter,
+                                       ctxInfo,
+                                       CtsEnforcement::kNever) {
     const int kWidth = 10;
     const int kHeight = 10;
 
     auto dContext = ctxInfo.directContext();
 
-    GrBackendTexture backendTex = dContext->createBackendTexture(
-            kWidth, kHeight, kAlpha_8_SkColorType,
-            SkColors::kTransparent, GrMipmapped::kNo, GrRenderable::kNo, GrProtected::kNo);
+    GrBackendTexture backendTex = dContext->createBackendTexture(kWidth,
+                                                                 kHeight,
+                                                                 kAlpha_8_SkColorType,
+                                                                 SkColors::kTransparent,
+                                                                 GrMipmapped::kNo,
+                                                                 GrRenderable::kNo,
+                                                                 GrProtected::kNo);
     REPORTER_ASSERT(reporter, backendTex.isValid());
 
     SkImageInfo info =
@@ -313,8 +343,15 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(PromiseImageTextureFullCache, reporter, ctxIn
         auto format = dContext->priv().caps()->getDefaultBackendFormat(GrColorType::kRGBA_8888,
                                                                        GrRenderable::kNo);
         textures.emplace_back(dContext->priv().resourceProvider()->createTexture(
-                {100, 100}, format, GrRenderable::kNo, 1, GrMipmapped::kNo, SkBudgeted::kYes,
-                GrProtected::kNo));
+                {100, 100},
+                format,
+                GrTextureType::k2D,
+                GrRenderable::kNo,
+                1,
+                GrMipmapped::kNo,
+                SkBudgeted::kYes,
+                GrProtected::kNo,
+                /*label=*/"PromiseImageTextureFullCacheTest"));
         REPORTER_ASSERT(reporter, textures[i]);
     }
 
@@ -345,7 +382,10 @@ DEF_GPUTEST_FOR_RENDERING_CONTEXTS(PromiseImageTextureFullCache, reporter, ctxIn
 }
 
 // Test case where promise image fulfill returns nullptr.
-DEF_GPUTEST_FOR_RENDERING_CONTEXTS(PromiseImageNullFulfill, reporter, ctxInfo) {
+DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(PromiseImageNullFulfill,
+                                       reporter,
+                                       ctxInfo,
+                                       CtsEnforcement::kNever) {
     const int kWidth = 10;
     const int kHeight = 10;
 
