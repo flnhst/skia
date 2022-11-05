@@ -59,8 +59,7 @@ private:
     sk_sp<SkTypeface> matchTypeface(const SkString& familyName, SkFontStyle fontStyle);
 
     struct SKPARAGRAPH_API FamilyKey {
-        FamilyKey(const SkTArray<SkString>& familyNames, SkFontStyle style, const std::optional<FontArguments>& args)
-                : fFamilyNames(familyNames), fFontStyle(style), fFontArguments(args) {}
+        FamilyKey(const SkTArray<SkString>& familyNames, SkFontStyle style, const std::optional<FontArguments>& args);
 
         FamilyKey();
 

@@ -14,8 +14,8 @@ bool FontCollection::FamilyKey::operator==(const FontCollection::FamilyKey& othe
            fFontArguments == other.fFontArguments;
 }
 
-FontCollection::FamilyKey::FamilyKey(const SkTArray<SkString>& familyNames, SkFontStyle style)
-        : fFamilyNames(familyNames), fFontStyle(style) {}
+FontCollection::FamilyKey::FamilyKey(const SkTArray<SkString>& familyNames, SkFontStyle, const std::optional<FontArguments>& args)
+        : fFamilyNames(familyNames), fFontStyle(style), fFontArguments(args) {}
 
 FontCollection::FamilyKey::FamilyKey() {}
 
