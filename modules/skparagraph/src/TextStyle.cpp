@@ -180,28 +180,6 @@ SkColor TextStyle::getColor() const { return fColor; }
 
 void TextStyle::setColor(SkColor color) { fColor = color; }
 
-bool TextStyle::hasForeground() const { return fHasForeground; }
-
-SkPaint TextStyle::getForeground() const { return fForeground; }
-
-void TextStyle::setForegroundColor(SkPaint paint) {
-    fHasForeground = true;
-    fForeground = std::move(paint);
-}
-
-void TextStyle::clearForegroundColor() { fHasForeground = false; }
-
-bool TextStyle::hasBackground() const { return fHasBackground; }
-
-SkPaint TextStyle::getBackground() const { return fBackground; }
-
-void TextStyle::setBackgroundColor(SkPaint paint) {
-    fHasBackground = true;
-    fBackground = std::move(paint);
-}
-
-void TextStyle::clearBackgroundColor() { fHasBackground = false; }
-
 void TextStyle::getFontMetrics(SkFontMetrics* metrics) const {
     SkFont font(fTypeface, fFontSize);
     font.setEdging(SkFont::Edging::kAntiAlias);
