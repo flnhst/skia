@@ -17,6 +17,8 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+#include <locale>
+#include <codecvt>
 
 // number of bytes (on the stack) to receive the printf result
 static const size_t kBufferSize = 1024;
@@ -301,6 +303,13 @@ SkString::SkString(SkString&& src) : fRec(std::move(src.validate().fRec)) {
 
 SkString::SkString(const std::string& src) {
     fRec = Rec::Make(src.c_str(), src.size());
+}
+
+SkString::SkString(const std::u16string& src) {
+    std::wstring_convert<std::codecvt_utf8_utf16<char16_t>,char16_t> convert;
+    std::string a = convert.to_bytes(src);
+
+    fRec = Rec::Make(a.c_str(), a.size());
 }
 
 SkString::SkString(std::string_view src) {

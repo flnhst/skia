@@ -4194,8 +4194,8 @@ UNIX_ONLY_TEST(SkParagraph_Ellipsize, reporter) {
     ParagraphStyle paragraph_style;
     paragraph_style.setMaxLines(1);
     std::u16string ellipsis = u"\u2026";
-    paragraph_style.setEllipsis(ellipsis);
-    std::u16string e = paragraph_style.getEllipsisUtf16();
+    paragraph_style.setEllipsis(SkString(ellipsis));
+    std::u16string e /*= paragraph_style.getEllipsisUtf16()*/;
     paragraph_style.turnHintingOff();
     TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
@@ -5707,7 +5707,7 @@ UNIX_ONLY_TEST(SkParagraph_Ellipsis, reporter) {
         paragraph_style.setTextStyle(text_style);
         paragraph_style.setMaxLines(lines);
         if (ellipsis) {
-            paragraph_style.setEllipsis(u"\u2026");
+            paragraph_style.setEllipsis(SkString(u"\u2026"));
         }
         TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
         builder.addText(text);
@@ -6976,8 +6976,8 @@ UNIX_ONLY_TEST(SkParagraph_EllipsisGetRectForRange, reporter) {
     ParagraphStyle paragraph_style;
     paragraph_style.setMaxLines(1);
     std::u16string ellipsis = u"\u2026";
-    paragraph_style.setEllipsis(ellipsis);
-    std::u16string e = paragraph_style.getEllipsisUtf16();
+    paragraph_style.setEllipsis(SkString(ellipsis));
+    std::u16string e /*= paragraph_style.getEllipsisUtf16()*/;
     paragraph_style.turnHintingOff();
     TestParagraphBuilderImpl builder(paragraph_style, fontCollection);
 
@@ -7235,7 +7235,7 @@ DEF_TEST(SkParagraph_lineMetricsWithEllipsis, reporter) {
     ParagraphStyle paragraph_style;
     paragraph_style.setMaxLines(1);
     std::u16string ellipsis = u"\u2026";
-    paragraph_style.setEllipsis(ellipsis);
+    paragraph_style.setEllipsis(SkString(ellipsis));
 
     ParagraphBuilderImpl builder(paragraph_style, fontCollection);
     builder.addText("hello");

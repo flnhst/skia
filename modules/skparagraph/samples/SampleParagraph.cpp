@@ -281,7 +281,7 @@ protected:
         paraStyle.setTextStyle(style);
         paraStyle.setMaxLines(lineLimit);
 
-        paraStyle.setEllipsis(ellipsis);
+        paraStyle.setEllipsis(SkString(ellipsis));
         TextStyle defaultStyle;
         defaultStyle.setFontSize(20);
         paraStyle.setTextStyle(defaultStyle);
@@ -450,7 +450,7 @@ protected:
         paraStyle.setTextStyle(style);
         paraStyle.setTextAlign(align);
         paraStyle.setMaxLines(lineLimit);
-        paraStyle.setEllipsis(ellipsis);
+        paraStyle.setEllipsis(SkString(ellipsis));
         // paraStyle.setTextDirection(RTL ? SkTextDirection::rtl : SkTextDirection::ltr);
 
         auto fontCollection = sk_make_sp<FontCollection>();
@@ -620,7 +620,7 @@ protected:
         paraStyle.setTextStyle(style);
         paraStyle.setMaxLines(lineLimit);
 
-        paraStyle.setEllipsis(ellipsis);
+        paraStyle.setEllipsis(SkString(ellipsis));
 
         const char* logo1 = "google_";
         const char* logo2 = "logo";
@@ -717,7 +717,7 @@ protected:
         paraStyle.setTextStyle(style);
         paraStyle.setMaxLines(lineLimit);
 
-        paraStyle.setEllipsis(ellipsis);
+        paraStyle.setEllipsis(SkString(ellipsis));
 
         ParagraphBuilderImpl builder(paraStyle, getFontCollection());
 
@@ -1460,7 +1460,7 @@ protected:
 
         ParagraphStyle paragraph_style;
         paragraph_style.setMaxLines(1);
-        paragraph_style.setEllipsis(u"\u2026");
+        paragraph_style.setEllipsis(SkString(u"\u2026"));
         //auto fontCollection = sk_make_sp<TestFontCollection>(GetResourcePath("fonts").c_str(), false, true);
         auto fontCollection = sk_make_sp<FontCollection>();
         fontCollection->setDefaultFontManager(SkFontMgr::RefDefault());
@@ -1690,7 +1690,7 @@ protected:
 
         const char* text =  "Manage your google account";
         ParagraphStyle paragraph_style;
-        paragraph_style.setEllipsis(u"\u2026");
+        paragraph_style.setEllipsis(SkString(u"\u2026"));
         paragraph_style.setMaxLines(1);
         ParagraphBuilderImpl builder(paragraph_style, fontCollection);
         TextStyle text_style;
@@ -2807,7 +2807,7 @@ protected:
 
         ParagraphStyle paragraph_style;
         paragraph_style.setTextAlign(TextAlign::kJustify);
-        paragraph_style.setEllipsis(u"\u2026");
+        paragraph_style.setEllipsis(SkString(u"\u2026"));
         paragraph_style.setMaxLines(2);
         ParagraphBuilderImpl builder(paragraph_style, fontCollection);
         TextStyle text_style;
@@ -2842,7 +2842,7 @@ protected:
 
         ParagraphStyle paragraph_style;
         paragraph_style.setMaxLines(7);
-        paragraph_style.setEllipsis(u"\u2026");
+        paragraph_style.setEllipsis(SkString(u"\u2026"));
         ParagraphBuilderImpl builder(paragraph_style, fontCollection);
         TextStyle text_style;
         text_style.setColor(SK_ColorBLACK);
@@ -2897,7 +2897,7 @@ protected:
         ParagraphStyle paragraph_style;
         paragraph_style.setMaxLines(1);
         paragraph_style.setHeight(0);
-        paragraph_style.setEllipsis(u"\u2026");
+        paragraph_style.setEllipsis(SkString(u"\u2026"));
         ParagraphBuilderImpl builder(paragraph_style, font_collection);
         TextStyle text_style;
         text_style.setColor(SK_ColorBLACK);
@@ -3789,7 +3789,7 @@ protected:
         text_style.setColor(SK_ColorBLACK);
         ParagraphStyle paragraph_style;
         paragraph_style.setMaxLines(1);
-        paragraph_style.setEllipsis(u"\u2026");
+        paragraph_style.setEllipsis(SkString(u"\u2026"));
         paragraph_style.setTextStyle(text_style);
         fontCollection->setDefaultFontManager(SkFontMgr::RefDefault());
 

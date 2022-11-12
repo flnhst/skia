@@ -123,6 +123,7 @@ public:
                 SkString(const SkString&);
                 SkString(SkString&&);
     explicit    SkString(const std::string&);
+    explicit    SkString(const std::u16string&);
     explicit    SkString(std::string_view);
                 ~SkString();
 
