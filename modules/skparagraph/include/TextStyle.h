@@ -289,6 +289,15 @@ public:
     bool isPlaceholder() const { return fIsPlaceholder; }
     void setPlaceholder() { fIsPlaceholder = true; }
 
+    void setEdging(SkFont::Edging edging) { fEdging = edging; }
+    SkFont::Edging getEdging() const { return fEdging; }
+
+    void setFontHinting(SkFontHinting hinting) { fFontHinting = hinting; }
+    SkFontHinting getFontHinting() const { return fFontHinting; }
+
+    void setSubpixel(bool subpixel) { fSubpixel = subpixel; }
+    bool getSubpixel() const { return fSubpixel; }
+
     static int sizeofTextStyle();
     static int sizeofVectorSkString();
     static int sizeofVectorInt();
@@ -337,6 +346,10 @@ private:
     SkTArray<FontFeature> fFontFeatures;
 
     std::optional<FontArguments> fFontArguments;
+
+    SkFont::Edging fEdging = SkFont::Edging::kSubpixelAntialias;
+    SkFontHinting fFontHinting = SkFontHinting::kFull;
+    bool fSubpixel = true;
 };
 
 typedef size_t TextIndex;
