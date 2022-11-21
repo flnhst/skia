@@ -347,7 +347,7 @@ private:
 
     std::optional<FontArguments> fFontArguments;
 
-    SkFont::Edging fEdging = SkFont::Edging::kSubpixelAntialias;
+    SkFont::Edging fEdging = SkFont::Edging::kSubpixelAntiAlias;
     SkFontHinting fFontHinting = SkFontHinting::kFull;
     bool fSubpixel = true;
 };
