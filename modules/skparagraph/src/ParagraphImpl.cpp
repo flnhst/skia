@@ -644,6 +644,9 @@ void ParagraphImpl::resolveStrut() {
     }
 
     SkFont font(typefaces.front(), strutStyle.getFontSize());
+    font.setEdging(this->paragraphStyle().getTextStyle().getEdging());
+    font.setSubpixel(this->paragraphStyle().getTextStyle().getSubpixel());
+    font.setHinting(this->paragraphStyle().getTextStyle().getFontHinting());
     SkFontMetrics metrics;
     font.getMetrics(&metrics);
 
@@ -954,6 +957,9 @@ void ParagraphImpl::computeEmptyMetrics() {
     auto typeface = typefaces.empty() ? nullptr : typefaces.front();
 
     SkFont font(typeface, textStyle.getFontSize());
+    font.setEdging(textStyle.getEdging());
+    font.setSubpixel(textStyle.getSubpixel());
+    font.setHinting(textStyle.getFontHinting());
     fEmptyMetrics = InternalLineMetrics(font, paragraphStyle().getStrutStyle().getForceStrutHeight());
 
     if (!paragraphStyle().getStrutStyle().getForceStrutHeight() &&

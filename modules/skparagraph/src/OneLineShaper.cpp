@@ -553,6 +553,9 @@ bool OneLineShaper::iterateThroughShapingRegions(const ShapeVisitor& shape) {
             placeholder.fTextStyle.getFontArguments());
         sk_sp<SkTypeface> typeface = typefaces.size() ? typefaces.front() : nullptr;
         SkFont font(typeface, placeholder.fTextStyle.getFontSize());
+        font.setEdging(placeholder.fTextStyle.getEdging());
+        font.setSubpixel(placeholder.fTextStyle.getSubpixel());
+        font.setHinting(placeholder.fTextStyle.getFontHinting());
 
         // "Shape" the placeholder
         uint8_t bidiLevel = (bidiIndex < fParagraph->fBidiRegions.size())
@@ -617,9 +620,12 @@ bool OneLineShaper::shape() {
 
                 // Create one more font to try
                 SkFont font(std::move(typeface), block.fStyle.getFontSize());
-                font.setEdging(SkFont::Edging::kAntiAlias);
-                font.setHinting(SkFontHinting::kSlight);
-                font.setSubpixel(true);
+                font.setEdging(block.fStyle.getEdging());
+                font.setSubpixel(block.fStyle.getSubpixel());
+                font.setHinting(block.fStyle.getFontHinting());
+                //font.setEdging(SkFont::Edging::kAntiAlias);
+                //font.setHinting(SkFontHinting::kSlight);
+                //font.setSubpixel(true);
 
                 // Apply fake bold and/or italic settings to the font if the
                 // typeface's attributes do not match the intended font style.

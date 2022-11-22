@@ -182,9 +182,9 @@ void TextStyle::setColor(SkColor color) { fColor = color; }
 
 void TextStyle::getFontMetrics(SkFontMetrics* metrics) const {
     SkFont font(fTypeface, fFontSize);
-    font.setEdging(SkFont::Edging::kAntiAlias);
-    font.setSubpixel(true);
-    font.setHinting(SkFontHinting::kSlight);
+    font.setEdging(getEdging());
+    font.setSubpixel(getSubpixel());
+    font.setHinting(getFontHinting());
     font.getMetrics(metrics);
     if (fHeightOverride) {
         auto multiplier = fHeight * fFontSize;
