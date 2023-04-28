@@ -32,6 +32,7 @@ if (skia_enable_skparagraph && skia_enable_skshaper && skia_use_harfbuzz) {
       "../..:skia",
       "../skshaper",
       "../skunicode",
+      "../../third_party/zlib:zlib"
     ]
     defines = [
       "SKPARAGRAPH_IMPLEMENTATION=1"
