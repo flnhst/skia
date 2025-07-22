@@ -5,15 +5,31 @@
  * found in the LICENSE file.
  */
 
-
 #ifndef GrVkTextureRenderTarget_DEFINED
 #define GrVkTextureRenderTarget_DEFINED
 
-#include "include/gpu/vk/GrVkTypes.h"
+#include "include/core/SkRefCnt.h"
+#include "include/gpu/ganesh/GrBackendSurface.h"
+#include "include/gpu/ganesh/GrTypes.h"
+#include "include/private/gpu/ganesh/GrTypesPriv.h"
+#include "include/private/gpu/vk/SkiaVulkan.h"
 #include "src/gpu/ganesh/vk/GrVkRenderTarget.h"
 #include "src/gpu/ganesh/vk/GrVkTexture.h"
 
+#include <cstddef>
+#include <cstdint>
+#include <string_view>
+#include <utility>
+
 class GrVkGpu;
+class GrVkImage;
+struct GrVkImageInfo;
+struct SkISize;
+
+namespace skgpu {
+class MutableTextureState;
+enum class Budgeted : bool;
+}  // namespace skgpu
 
 #ifdef SK_BUILD_FOR_WIN
 // Windows gives bogus warnings about inheriting asTexture/asRenderTarget via dominance.
@@ -21,21 +37,17 @@ class GrVkGpu;
 #pragma warning(disable: 4250)
 #endif
 
-class GrVkImageView;
-struct GrVkImageInfo;
-
 class GrVkTextureRenderTarget: public GrVkTexture, public GrVkRenderTarget {
 public:
-    static sk_sp<GrVkTextureRenderTarget> MakeNewTextureRenderTarget(
-            GrVkGpu* gpu,
-            SkBudgeted budgeted,
-            SkISize dimensions,
-            VkFormat format,
-            uint32_t mipLevels,
-            int sampleCnt,
-            GrMipmapStatus mipmapStatus,
-            GrProtected isProtected,
-            std::string_view label);
+    static sk_sp<GrVkTextureRenderTarget> MakeNewTextureRenderTarget(GrVkGpu* gpu,
+                                                                     skgpu::Budgeted budgeted,
+                                                                     SkISize dimensions,
+                                                                     VkFormat format,
+                                                                     uint32_t mipLevels,
+                                                                     int sampleCnt,
+                                                                     GrMipmapStatus mipmapStatus,
+                                                                     GrProtected isProtected,
+                                                                     std::string_view label);
 
     static sk_sp<GrVkTextureRenderTarget> MakeWrappedTextureRenderTarget(
             GrVkGpu*,
@@ -44,7 +56,7 @@ public:
             GrWrapOwnership,
             GrWrapCacheable,
             const GrVkImageInfo&,
-            sk_sp<skgpu::MutableTextureStateRef>);
+            sk_sp<skgpu::MutableTextureState>);
 
     GrBackendFormat backendFormat() const override { return GrVkTexture::backendFormat(); }
 
@@ -63,7 +75,7 @@ protected:
 
 private:
     GrVkTextureRenderTarget(GrVkGpu* gpu,
-                            SkBudgeted budgeted,
+                            skgpu::Budgeted budgeted,
                             SkISize dimensions,
                             sk_sp<GrVkImage> texture,
                             sk_sp<GrVkImage> colorAttachment,

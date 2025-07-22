@@ -8,22 +8,32 @@
 #ifndef skgpu_graphite_render_TessellateStrokesRenderStep_DEFINED
 #define skgpu_graphite_render_TessellateStrokesRenderStep_DEFINED
 
+#include "src/base/SkVx.h"
 #include "src/gpu/graphite/Renderer.h"
 
+#include <string>
+
 namespace skgpu::graphite {
+
+class DrawParams;
+class DrawWriter;
+class PipelineDataGatherer;
 
 class TessellateStrokesRenderStep final : public RenderStep {
 public:
     // TODO: If this takes DepthStencilSettings directly and a way to adjust the flags to specify
     // that it performs shading, this RenderStep definition could be used to handle inverse-filled
     // stroke draws.
-    TessellateStrokesRenderStep();
+    explicit TessellateStrokesRenderStep(bool infinitySupport);
 
     ~TessellateStrokesRenderStep() override;
 
-    const char* vertexSkSL() const override;
-    void writeVertices(DrawWriter*, const DrawParams&, int ssboIndex) const override;
-    void writeUniformsAndTextures(const DrawParams&, SkPipelineDataGatherer*) const override;
+    std::string vertexSkSL() const override;
+    void writeVertices(DrawWriter*, const DrawParams&, skvx::uint2 ssboIndices) const override;
+    void writeUniformsAndTextures(const DrawParams&, PipelineDataGatherer*) const override;
+
+private:
+    bool fInfinitySupport;
 };
 
 }  // namespace skgpu::graphite

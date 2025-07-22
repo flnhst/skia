@@ -8,7 +8,7 @@
 #ifndef skgpu_graphite_Image_Graphite_DEFINED
 #define skgpu_graphite_Image_Graphite_DEFINED
 
-#include "src/image/SkImage_Base.h"
+#include "src/gpu/graphite/Image_Base_Graphite.h"
 
 #include "src/gpu/graphite/TextureProxyView.h"
 
@@ -19,103 +19,57 @@ namespace skgpu {
 namespace skgpu::graphite {
 
 class Context;
+class Device;
 class Recorder;
 
-class Image final : public SkImage_Base {
+class Image final : public Image_Base {
 public:
-    Image(uint32_t uniqueID, TextureProxyView, const SkColorInfo&);
     Image(TextureProxyView, const SkColorInfo&);
     ~Image() override;
 
-    bool onReadPixels(GrDirectContext*,
-                      const SkImageInfo& dstInfo,
-                      void* dstPixels,
-                      size_t dstRowBytes,
-                      int srcX,
-                      int srcY,
-                      CachingHint) const override { return false; }
-    // Temporary and only for testing purposes.
-    // To be removed once asynchronous readback is working.
-    bool testingOnly_ReadPixels(Context*,
-                                Recorder*,
-                                const SkImageInfo& dstInfo,
-                                void* dstPixels,
-                                size_t dstRowBytes,
-                                int srcX,
-                                int srcY);
+    // Create an Image that wraps the Device and automatically flushes or references the Device's
+    // pending tasks when the Image is used in a draw to another canvas.
+    static sk_sp<Image> WrapDevice(sk_sp<Device> device);
+
+    // Create an Image by copying the provided texture proxy view into a new texturable proxy.
+    // The source texture does not have to be texturable if it is blittable.
+    static sk_sp<Image> Copy(Recorder*,
+                             const TextureProxyView& srcView,
+                             const SkColorInfo&,
+                             const SkIRect& subset,
+                             Budgeted,
+                             Mipmapped,
+                             SkBackingFit,
+                             std::string_view label);
+
+    const TextureProxyView& textureProxyView() const { return fTextureProxyView; }
+
+    SkImage_Base::Type type() const override { return SkImage_Base::Type::kGraphite; }
 
     bool onHasMipmaps() const override {
         return fTextureProxyView.proxy()->mipmapped() == Mipmapped::kYes;
     }
 
-    bool isGraphiteBacked() const override { return true; }
-
-    bool getROPixels(GrDirectContext*,
-                     SkBitmap*,
-                     CachingHint = kAllow_CachingHint) const override { return false; }
-
-    sk_sp<SkImage> onMakeSubset(const SkIRect&, GrDirectContext*) const override {
-        return nullptr;
+    bool onIsProtected() const override {
+        return fTextureProxyView.proxy()->isProtected();
     }
 
-    bool onIsValid(GrRecordingContext*) const override { return true; }
+    size_t textureSize() const override;
 
-    sk_sp<SkImage> onMakeColorTypeAndColorSpace(SkColorType,
-                                                sk_sp<SkColorSpace>,
-                                                GrDirectContext*) const override;
+    sk_sp<Image> copyImage(Recorder*,
+                           const SkIRect& subset,
+                           Budgeted,
+                           Mipmapped,
+                           SkBackingFit,
+                           std::string_view label) const override;
 
     sk_sp<SkImage> onReinterpretColorSpace(sk_sp<SkColorSpace>) const override;
 
-    void onAsyncReadPixels(const SkImageInfo&,
-                           SkIRect srcRect,
-                           ReadPixelsCallback,
-                           ReadPixelsContext) const override;
-
-    void onAsyncRescaleAndReadPixels(const SkImageInfo&,
-                                     SkIRect srcRect,
-                                     RescaleGamma,
-                                     RescaleMode,
-                                     ReadPixelsCallback,
-                                     ReadPixelsContext) const override;
-
-    void onAsyncRescaleAndReadPixelsYUV420(SkYUVColorSpace,
-                                           sk_sp<SkColorSpace>,
-                                           SkIRect srcRect,
-                                           SkISize dstSize,
-                                           RescaleGamma,
-                                           RescaleMode,
-                                           ReadPixelsCallback,
-                                           ReadPixelsContext) const override;
-
-    TextureProxyView textureProxyView() const { return fTextureProxyView; }
-
-    static sk_sp<TextureProxy> MakePromiseImageLazyProxy(SkISize dimensions,
-                                                         TextureInfo,
-                                                         Volatile,
-                                                         GraphitePromiseImageFulfillProc,
-                                                         sk_sp<RefCntedCallback>,
-                                                         GraphitePromiseTextureReleaseProc);
-
-private:
-
-#if SK_SUPPORT_GPU
-    std::unique_ptr<GrFragmentProcessor> onAsFragmentProcessor(
-            GrRecordingContext*,
-            SkSamplingOptions,
-            const SkTileMode[2],
-            const SkMatrix&,
-            const SkRect* subset,
-            const SkRect* domain) const override;
-
-    std::tuple<GrSurfaceProxyView, GrColorType> onAsView(
-            GrRecordingContext*,
-            GrMipmapped,
-            GrImageTexGenPolicy policy) const override {
-        return {};
-    }
+#if defined(GPU_TEST_UTILS)
+    bool readPixelsGraphite(Recorder*, const SkPixmap& dst, int srcX, int srcY) const override;
 #endif
 
-    sk_sp<SkImage> onMakeTextureImage(Recorder*, RequiredImageProperties) const override;
+private:
 
     TextureProxyView fTextureProxyView;
 };

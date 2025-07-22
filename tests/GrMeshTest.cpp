@@ -14,16 +14,18 @@
 #include "include/core/SkRefCnt.h"
 #include "include/core/SkSurfaceProps.h"
 #include "include/core/SkTypes.h"
-#include "include/gpu/GrDirectContext.h"
+#include "include/gpu/ganesh/GrDirectContext.h"
 #include "include/private/SkColorData.h"
-#include "include/private/SkOnce.h"
-#include "include/private/SkTArray.h"
-#include "include/private/SkTemplates.h"
+#include "include/private/base/SkAlignedStorage.h"
+#include "include/private/base/SkOnce.h"
+#include "include/private/base/SkTArray.h"
+#include "include/private/base/SkTo.h"
 #include "include/private/gpu/ganesh/GrTypesPriv.h"
-#include "src/core/SkArenaAlloc.h"
+#include "src/base/SkArenaAlloc.h"
 #include "src/core/SkSLTypeShared.h"
 #include "src/gpu/KeyBuilder.h"
 #include "src/gpu/ResourceKey.h"
+#include "src/gpu/SkBackingFit.h"
 #include "src/gpu/ganesh/GrBuffer.h"
 #include "src/gpu/ganesh/GrCaps.h"
 #include "src/gpu/ganesh/GrColor.h"
@@ -70,9 +72,11 @@ class GrSurfaceProxyView;
 enum class GrXferBarrierFlags;
 struct GrContextOptions;
 
+using namespace skia_private;
+
 #if 0
 #include "tools/ToolUtils.h"
-#define WRITE_PNG_CONTEXT_TYPE kANGLE_D3D11_ES3_ContextType
+#define WRITE_PNG_CONTEXT_TYPE kANGLE_D3D11_ES3
 #endif
 
 SKGPU_DECLARE_STATIC_UNIQUE_KEY(gIndexBufferKey);
@@ -97,8 +101,8 @@ public:
 
     sk_sp<const GrBuffer> makeIndexBuffer(const uint16_t[], int count);
 
-    template<typename T> sk_sp<const GrBuffer> makeVertexBuffer(const SkTArray<T>& data) {
-        return this->makeVertexBuffer(data.begin(), data.count());
+    template<typename T> sk_sp<const GrBuffer> makeVertexBuffer(const TArray<T>& data) {
+        return this->makeVertexBuffer(data.begin(), data.size());
     }
     template<typename T> sk_sp<const GrBuffer> makeVertexBuffer(const std::vector<T>& data) {
         return this->makeVertexBuffer(data.data(), data.size());
@@ -136,14 +140,17 @@ struct Box {
  * produce exact matches.
  */
 
-static void run_test(GrDirectContext*, const char* testName, skiatest::Reporter*,
-                     const std::unique_ptr<skgpu::v1::SurfaceDrawContext>&, const SkBitmap& gold,
+static void run_test(GrDirectContext*,
+                     const char* testName,
+                     skiatest::Reporter*,
+                     const std::unique_ptr<skgpu::ganesh::SurfaceDrawContext>&,
+                     const SkBitmap& gold,
                      std::function<void(DrawMeshHelper*)> prepareFn,
                      std::function<void(DrawMeshHelper*)> executeFn);
 
 #ifdef WRITE_PNG_CONTEXT_TYPE
-static bool IsContextTypeForOutputPNGs(skiatest::GrContextFactoryContextType type) {
-    return type == skiatest::GrContextFactoryContextType::WRITE_PNG_CONTEXT_TYPE;
+static bool IsContextTypeForOutputPNGs(skgpu::ContextType type) {
+    return type == skgpu::ContextType::WRITE_PNG_CONTEXT_TYPE;
 }
 DEF_GANESH_TEST_FOR_CONTEXTS(GrMeshTest, IsContextTypeForOutputPNGs, reporter, ctxInfo, nullptr) {
 #else
@@ -151,16 +158,20 @@ DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(GrMeshTest, reporter, ctxInfo, CtsEnforce
 #endif
     auto dContext = ctxInfo.directContext();
 
-    auto sdc = skgpu::v1::SurfaceDrawContext::Make(
-            dContext, GrColorType::kRGBA_8888, nullptr, SkBackingFit::kExact,
-            {kImageWidth, kImageHeight}, SkSurfaceProps(), /*label=*/{});
+    auto sdc = skgpu::ganesh::SurfaceDrawContext::Make(dContext,
+                                                       GrColorType::kRGBA_8888,
+                                                       nullptr,
+                                                       SkBackingFit::kExact,
+                                                       {kImageWidth, kImageHeight},
+                                                       SkSurfaceProps(),
+                                                       /*label=*/{});
     if (!sdc) {
         ERRORF(reporter, "could not create render target context.");
         return;
     }
 
-    SkTArray<Box> boxes;
-    SkTArray<std::array<Box, 4>> vertexData;
+    TArray<Box> boxes;
+    TArray<std::array<Box, 4>> vertexData;
     SkBitmap gold;
 
     // ---- setup ----------
@@ -208,7 +219,7 @@ DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(GrMeshTest, reporter, ctxInfo, CtsEnforce
 
     run_test(dContext, "draw", reporter, sdc, gold,
              [&](DrawMeshHelper* helper) {
-                 SkTArray<Box> expandedVertexData;
+                 TArray<Box> expandedVertexData;
                  for (int i = 0; i < kBoxCount; ++i) {
                      for (int j = 0; j < 6; ++j) {
                          expandedVertexData.push_back(vertexData[i][kIndexPattern[j]]);
@@ -282,13 +293,13 @@ DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(GrMeshTest, reporter, ctxInfo, CtsEnforce
                  reporter, sdc, gold,
                  [&](DrawMeshHelper* helper) {
                      helper->fIndexBuffer = indexed ? helper->getIndexBuffer() : nullptr;
-                     SkTArray<uint16_t> baseIndexData;
+                     TArray<uint16_t> baseIndexData;
                      baseIndexData.push_back(kBoxCountX/2 * 6); // for testing base index.
                      for (int i = 0; i < 6; ++i) {
                          baseIndexData.push_back(kIndexPattern[i]);
                      }
                      helper->fIndexBuffer2 = helper->makeIndexBuffer(baseIndexData.begin(),
-                                                                     baseIndexData.count());
+                                                                     baseIndexData.size());
                      helper->fInstBuffer = helper->makeVertexBuffer(boxes);
                      VALIDATE(helper->fInstBuffer);
                      helper->fVertBuffer =
@@ -349,7 +360,7 @@ DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(GrMeshTest, reporter, ctxInfo, CtsEnforce
         run_test(dContext, (indexed) ? "drawIndexedIndirect" : "drawIndirect",
                  reporter, sdc, gold,
                  [&](DrawMeshHelper* helper) {
-                     SkTArray<uint16_t> baseIndexData;
+                     TArray<uint16_t> baseIndexData;
                      baseIndexData.push_back(kBoxCountX/2 * 6); // for testing base index.
                      for (int j = 0; j < kBoxCountY; ++j) {
                          for (int i = 0; i < 6; ++i) {
@@ -357,7 +368,7 @@ DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(GrMeshTest, reporter, ctxInfo, CtsEnforce
                          }
                      }
                      helper->fIndexBuffer2 = helper->makeIndexBuffer(baseIndexData.begin(),
-                                                                     baseIndexData.count());
+                                                                     baseIndexData.size());
                      VALIDATE(helper->fIndexBuffer2);
                      helper->fInstBuffer = helper->makeVertexBuffer(boxes);
                      VALIDATE(helper->fInstBuffer);
@@ -627,7 +638,7 @@ GrOpsRenderPass* DrawMeshHelper::bindPipeline(GrPrimitiveType primitiveType, boo
 static void run_test(GrDirectContext* dContext,
                      const char* testName,
                      skiatest::Reporter* reporter,
-                     const std::unique_ptr<skgpu::v1::SurfaceDrawContext>& sdc,
+                     const std::unique_ptr<skgpu::ganesh::SurfaceDrawContext>& sdc,
                      const SkBitmap& gold,
                      std::function<void(DrawMeshHelper*)> prepareFn,
                      std::function<void(DrawMeshHelper*)> executeFn) {
@@ -654,7 +665,7 @@ static void run_test(GrDirectContext* dContext,
     SkString filename;
     filename.printf("GrMeshTest_%s_%s.png", TOSTRING(WRITE_PNG_CONTEXT_TYPE), testName);
     SkDebugf("writing %s...\n", filename.c_str());
-    ToolUtils::EncodeImageToFile(filename.c_str(), resultPM, SkEncodedImageFormat::kPNG, 100);
+    ToolUtils::EncodeImageToPngFile(filename.c_str(), resultPM);
 #endif
 
     for (int y = 0; y < h; ++y) {

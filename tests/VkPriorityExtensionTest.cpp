@@ -7,20 +7,20 @@
 
 #include "include/core/SkTypes.h"
 
-#if SK_SUPPORT_GPU && defined(SK_VULKAN)
+#if defined(SK_GANESH) && defined(SK_VULKAN)
 
 #include "include/core/SkTypes.h"
 #include "include/gpu/vk/VulkanTypes.h"
-#include "src/core/SkAutoMalloc.h"
+#include "src/base/SkAutoMalloc.h"
 #include "tests/CtsEnforcement.h"
 #include "tests/Test.h"
 #include "tools/gpu/vk/VkTestUtils.h"
 
 #include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <functional>
 #include <initializer_list>
-#include <string>
 #include <vulkan/vulkan_core.h>
 
 struct GrContextOptions;
@@ -52,7 +52,7 @@ struct GrContextOptions;
 
 #define GET_PROC_LOCAL(F, inst) PFN_vk ## F F = (PFN_vk ## F) getProc("vk" #F, inst, VK_NULL_HANDLE)
 
-static void destroy_instance(skgpu::VulkanGetProc getProc, VkInstance inst) {
+static void destroy_instance(const skgpu::VulkanGetProc& getProc, VkInstance inst) {
     ACQUIRE_VK_PROC_LOCAL(DestroyInstance, inst);
     grVkDestroyInstance(inst, nullptr);
 }

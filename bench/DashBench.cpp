@@ -13,8 +13,8 @@
 #include "include/core/SkString.h"
 #include "include/core/SkStrokeRec.h"
 #include "include/effects/SkDashPathEffect.h"
-#include "include/private/SkTDArray.h"
-#include "include/utils/SkRandom.h"
+#include "include/private/base/SkTDArray.h"
+#include "src/base/SkRandom.h"
 
 /*
  *  Cases to consider:
@@ -215,7 +215,7 @@ class DashLineBench : public Benchmark {
 
 public:
     DashLineBench(SkScalar width, bool isRound)  {
-        fName.printf("dashline_%g_%s", SkScalarToFloat(width), isRound ? "circle" : "square");
+        fName.printf("dashline_%g_%s", width, isRound ? "circle" : "square");
         fStrokeWidth = width;
         fIsRound = isRound;
 

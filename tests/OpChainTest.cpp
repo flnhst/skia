@@ -10,13 +10,15 @@
 #include "include/core/SkScalar.h"
 #include "include/core/SkSize.h"
 #include "include/core/SkTypes.h"
-#include "include/gpu/GrBackendSurface.h"
-#include "include/gpu/GrDirectContext.h"
-#include "include/gpu/GrTypes.h"
-#include "include/private/SkTDArray.h"
+#include "include/gpu/GpuTypes.h"
+#include "include/gpu/ganesh/GrBackendSurface.h"
+#include "include/gpu/ganesh/GrDirectContext.h"
+#include "include/gpu/ganesh/GrTypes.h"
+#include "include/private/base/SkTDArray.h"
 #include "include/private/gpu/ganesh/GrTypesPriv.h"
-#include "include/utils/SkRandom.h"
+#include "src/base/SkRandom.h"
 #include "src/gpu/AtlasTypes.h"
+#include "src/gpu/SkBackingFit.h"
 #include "src/gpu/Swizzle.h"
 #include "src/gpu/ganesh/GrCaps.h"
 #include "src/gpu/ganesh/GrDirectContextPriv.h"
@@ -214,10 +216,16 @@ DEF_GANESH_TEST(OpChainTest, reporter, /*ctxInfo*/, CtsEnforcement::kApiLevel_T)
                                                                  GrRenderable::kYes);
 
     static const GrSurfaceOrigin kOrigin = kTopLeft_GrSurfaceOrigin;
-    auto proxy = dContext->priv().proxyProvider()->createProxy(
-            format, kDims, GrRenderable::kYes, 1, GrMipmapped::kNo, SkBackingFit::kExact,
-            SkBudgeted::kNo, GrProtected::kNo, /*label=*/"OpChainTest",
-            GrInternalSurfaceFlags::kNone);
+    auto proxy = dContext->priv().proxyProvider()->createProxy(format,
+                                                               kDims,
+                                                               GrRenderable::kYes,
+                                                               1,
+                                                               skgpu::Mipmapped::kNo,
+                                                               SkBackingFit::kExact,
+                                                               skgpu::Budgeted::kNo,
+                                                               GrProtected::kNo,
+                                                               /*label=*/"OpChainTest",
+                                                               GrInternalSurfaceFlags::kNone);
     SkASSERT(proxy);
     proxy->instantiate(dContext->priv().resourceProvider());
 
@@ -254,10 +262,10 @@ DEF_GANESH_TEST(OpChainTest, reporter, /*ctxInfo*/, CtsEnforcement::kApiLevel_T)
                 GrOpFlushState flushState(dContext->priv().getGpu(),
                                           dContext->priv().resourceProvider(),
                                           &tracker);
-                skgpu::v1::OpsTask opsTask(drawingMgr,
-                                           GrSurfaceProxyView(proxy, kOrigin, writeSwizzle),
-                                           dContext->priv().auditTrail(),
-                                           arenas);
+                skgpu::ganesh::OpsTask opsTask(drawingMgr,
+                                               GrSurfaceProxyView(proxy, kOrigin, writeSwizzle),
+                                               dContext->priv().auditTrail(),
+                                               arenas);
                 // This assumes the particular values of kRanges.
                 std::fill_n(result, result_width(), -1);
                 std::fill_n(validResult, result_width(), -1);

@@ -4,15 +4,26 @@
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
-
 #include "src/gpu/ganesh/GrTextureResolveRenderTask.h"
 
+#include "include/gpu/GpuTypes.h"
+#include "include/private/base/SkAssert.h"
+#include "include/private/base/SkMacros.h"
+#include "src/gpu/ganesh/GrDrawingManager.h"
 #include "src/gpu/ganesh/GrGpu.h"
-#include "src/gpu/ganesh/GrMemoryPool.h"
 #include "src/gpu/ganesh/GrOpFlushState.h"
-#include "src/gpu/ganesh/GrRenderTarget.h"
+#include "src/gpu/ganesh/GrRenderTargetProxy.h"
 #include "src/gpu/ganesh/GrResourceAllocator.h"
+#include "src/gpu/ganesh/GrSurfaceProxyView.h"
 #include "src/gpu/ganesh/GrTexture.h"
+#include "src/gpu/ganesh/GrTextureProxy.h"
+#include "src/gpu/ganesh/GrTextureResolveManager.h"
+
+#include <algorithm>
+#include <cstddef>
+#include <utility>
+
+class GrRenderTarget;
 
 void GrTextureResolveRenderTask::addProxy(GrDrawingManager* drawingMgr,
                                           sk_sp<GrSurfaceProxy> proxyRef,
@@ -50,10 +61,9 @@ void GrTextureResolveRenderTask::addProxy(GrDrawingManager* drawingMgr,
 
     if (GrSurfaceProxy::ResolveFlags::kMipMaps & newFlags) {
         GrTextureProxy* textureProxy = proxy->asTextureProxy();
-        SkASSERT(GrMipmapped::kYes == textureProxy->mipmapped());
+        SkASSERT(skgpu::Mipmapped::kYes == textureProxy->mipmapped());
         SkASSERT(textureProxy->mipmapsAreDirty());
         textureProxy->markMipmapsClean();
-        SkDEBUGCODE(textureProxy->needsMipmapRegen(drawingMgr->flushNumber());)
     }
 
     // We must do this after updating the proxy state because of assertions that the proxy isn't
@@ -61,11 +71,8 @@ void GrTextureResolveRenderTask::addProxy(GrDrawingManager* drawingMgr,
     if (newProxy) {
         // Add the proxy as a dependency: We will read the existing contents of this texture while
         // generating mipmap levels and/or resolving MSAA.
-        this->addDependency(drawingMgr,
-                            proxy,
-                            GrMipmapped::kNo,
-                            GrTextureResolveManager(nullptr),
-                            caps);
+        this->addDependency(
+                drawingMgr, proxy, skgpu::Mipmapped::kNo, GrTextureResolveManager(nullptr), caps);
         this->addTarget(drawingMgr, GrSurfaceProxyView(std::move(proxyRef)));
     }
 }
@@ -75,17 +82,18 @@ void GrTextureResolveRenderTask::gatherProxyIntervals(GrResourceAllocator* alloc
     // fEndOfOpsTaskOpIndices will remain in sync. We create fake op#'s to capture the fact that we
     // manipulate the resolve proxies.
     auto fakeOp = alloc->curOp();
-    SkASSERT(fResolves.count() == this->numTargets());
+    SkASSERT(fResolves.size() == this->numTargets());
     for (const sk_sp<GrSurfaceProxy>& target : fTargets) {
-        alloc->addInterval(target.get(), fakeOp, fakeOp, GrResourceAllocator::ActualUse::kYes);
+        alloc->addInterval(target.get(), fakeOp, fakeOp, GrResourceAllocator::ActualUse::kYes,
+                           GrResourceAllocator::AllowRecycling::kYes);
     }
     alloc->incOps();
 }
 
 bool GrTextureResolveRenderTask::onExecute(GrOpFlushState* flushState) {
     // Resolve all msaa back-to-back, before regenerating mipmaps.
-    SkASSERT(fResolves.count() == this->numTargets());
-    for (int i = 0; i < fResolves.count(); ++i) {
+    SkASSERT(fResolves.size() == this->numTargets());
+    for (int i = 0; i < fResolves.size(); ++i) {
         const Resolve& resolve = fResolves[i];
         if (GrSurfaceProxy::ResolveFlags::kMSAA & resolve.fFlags) {
             GrSurfaceProxy* proxy = this->target(i);
@@ -96,7 +104,7 @@ bool GrTextureResolveRenderTask::onExecute(GrOpFlushState* flushState) {
         }
     }
     // Regenerate all mipmaps back-to-back.
-    for (int i = 0; i < fResolves.count(); ++i) {
+    for (int i = 0; i < fResolves.size(); ++i) {
         const Resolve& resolve = fResolves[i];
         if (GrSurfaceProxy::ResolveFlags::kMipMaps & resolve.fFlags) {
             // peekTexture might be null if there was an instantiation error.
@@ -105,10 +113,6 @@ bool GrTextureResolveRenderTask::onExecute(GrOpFlushState* flushState) {
                 flushState->gpu()->regenerateMipMapLevels(texture);
                 SkASSERT(!texture->mipmapsAreDirty());
             }
-#ifdef SK_DEBUG
-            GrTextureProxy* textureProxy = this->target(i)->asTextureProxy();
-            textureProxy->mipmapsRegenerated();
-#endif
         }
     }
 
@@ -119,7 +123,7 @@ bool GrTextureResolveRenderTask::onExecute(GrOpFlushState* flushState) {
 void GrTextureResolveRenderTask::visitProxies_debugOnly(const GrVisitProxyFunc&) const {}
 #endif
 
-#if GR_TEST_UTILS
+#if defined(GPU_TEST_UTILS)
 GrSurfaceProxy::ResolveFlags
 GrTextureResolveRenderTask::flagsForProxy(sk_sp<GrSurfaceProxy> proxy) const {
     if (auto found = std::find(fTargets.begin(), fTargets.end(), proxy);

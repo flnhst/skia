@@ -7,15 +7,33 @@
 
 #include "src/gpu/ganesh/vk/GrVkPipeline.h"
 
+#include "include/core/SkRect.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkSize.h"
+#include "include/gpu/ganesh/GrTypes.h"
+#include "include/private/SkColorData.h"
+#include "include/private/base/SkTArray.h"
+#include "include/private/gpu/ganesh/GrTypesPriv.h"
 #include "src/core/SkTraceEvent.h"
+#include "src/gpu/Blend.h"
+#include "src/gpu/Swizzle.h"
+#include "src/gpu/ganesh/GrCaps.h"
 #include "src/gpu/ganesh/GrGeometryProcessor.h"
 #include "src/gpu/ganesh/GrPipeline.h"
+#include "src/gpu/ganesh/GrProgramInfo.h"
 #include "src/gpu/ganesh/GrStencilSettings.h"
+#include "src/gpu/ganesh/GrXferProcessor.h"
+#include "src/gpu/ganesh/vk/GrVkCaps.h"
 #include "src/gpu/ganesh/vk/GrVkCommandBuffer.h"
 #include "src/gpu/ganesh/vk/GrVkGpu.h"
-#include "src/gpu/ganesh/vk/GrVkRenderTarget.h"
 #include "src/gpu/ganesh/vk/GrVkUtil.h"
-#include "src/gpu/vk/VulkanUtils.h"
+#include "src/gpu/vk/VulkanUtilsPriv.h"
+
+#include <string.h>
+#include <array>
+#include <optional>
+
+using namespace skia_private;
 
 #if defined(SK_ENABLE_SCOPED_LSAN_SUPPRESSIONS)
 #include <sanitizer/lsan_interface.h>
@@ -83,14 +101,14 @@ static void setup_vertex_input_state(
         const GrGeometryProcessor::AttributeSet& vertexAttribs,
         const GrGeometryProcessor::AttributeSet& instanceAttribs,
         VkPipelineVertexInputStateCreateInfo* vertexInputInfo,
-        SkSTArray<2, VkVertexInputBindingDescription, true>* bindingDescs,
+        STArray<2, VkVertexInputBindingDescription, true>* bindingDescs,
         VkVertexInputAttributeDescription* attributeDesc) {
     int vaCount = vertexAttribs.count();
     int iaCount = instanceAttribs.count();
 
     uint32_t vertexBinding = 0, instanceBinding = 0;
 
-    int nextBinding = bindingDescs->count();
+    int nextBinding = bindingDescs->size();
     if (vaCount) {
         vertexBinding = nextBinding++;
     }
@@ -136,7 +154,7 @@ static void setup_vertex_input_state(
     vertexInputInfo->sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
     vertexInputInfo->pNext = nullptr;
     vertexInputInfo->flags = 0;
-    vertexInputInfo->vertexBindingDescriptionCount = bindingDescs->count();
+    vertexInputInfo->vertexBindingDescriptionCount = bindingDescs->size();
     vertexInputInfo->pVertexBindingDescriptions = bindingDescs->begin();
     vertexInputInfo->vertexAttributeDescriptionCount = vaCount + iaCount;
     vertexInputInfo->pVertexAttributeDescriptions = attributeDesc;
@@ -479,8 +497,8 @@ sk_sp<GrVkPipeline> GrVkPipeline::Make(GrVkGpu* gpu,
                                    bool ownsLayout,
                                    VkPipelineCache cache) {
     VkPipelineVertexInputStateCreateInfo vertexInputInfo;
-    SkSTArray<2, VkVertexInputBindingDescription, true> bindingDescs;
-    SkSTArray<16, VkVertexInputAttributeDescription> attributeDesc;
+    STArray<2, VkVertexInputBindingDescription, true> bindingDescs;
+    STArray<16, VkVertexInputAttributeDescription> attributeDesc;
     int totalAttributeCnt = vertexAttribs.count() + instanceAttribs.count();
     SkASSERT(totalAttributeCnt <= gpu->vkCaps().maxVertexAttributes());
     VkVertexInputAttributeDescription* pAttribs = attributeDesc.push_back_n(totalAttributeCnt);

@@ -129,6 +129,9 @@ struct SKPARAGRAPH_API ParagraphStyle {
 
     static int sizeofParagraphStyle();
 
+    bool getApplyRoundingHack() const { return fApplyRoundingHack; }
+    void setApplyRoundingHack(bool value) { fApplyRoundingHack = value; }
+
 private:
     StrutStyle fStrutStyle;
     TextStyle fDefaultTextStyle;
@@ -141,6 +144,7 @@ private:
     TextHeightBehavior fTextHeightBehavior;
     bool fHintingIsOn;
     bool fReplaceTabCharacters;
+    bool fApplyRoundingHack = true;
 };
 }  // namespace textlayout
 }  // namespace skia

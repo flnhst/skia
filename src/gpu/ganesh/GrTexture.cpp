@@ -4,77 +4,34 @@
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
-
-#include "include/core/SkMath.h"
-#include "include/core/SkTypes.h"
-#include "include/gpu/GrTypes.h"
-#include "src/core/SkMipmap.h"
-#include "src/gpu/ganesh/GrCaps.h"
-#include "src/gpu/ganesh/GrGpu.h"
-#include "src/gpu/ganesh/GrRenderTarget.h"
-#include "src/gpu/ganesh/GrResourceCache.h"
 #include "src/gpu/ganesh/GrTexture.h"
 
-#if defined(SK_DEBUG)
-#include "include/gpu/GrDirectContext.h"
+#include "include/core/SkSize.h"
+#include "include/core/SkTypes.h"
+#include "include/gpu/GpuTypes.h"
+#include "include/gpu/ganesh/GrDirectContext.h"
+#include "include/gpu/ganesh/GrTypes.h"
+#include "src/core/SkMipmap.h"
+#include "src/gpu/ResourceKey.h"
+#include "src/gpu/ganesh/GrCaps.h"
 #include "src/gpu/ganesh/GrDirectContextPriv.h"
-#include "src/gpu/ganesh/GrDrawingManager.h"
-#include "src/gpu/ganesh/effects/GrTextureEffect.h"
-#if defined(SK_GL)
-#include "src/gpu/ganesh/gl/GrGLTexture.h"
-#endif
-#endif
+#include "src/gpu/ganesh/GrGpu.h"
+#include "src/gpu/ganesh/GrGpuResourcePriv.h"
+#include "src/gpu/ganesh/GrRenderTarget.h"
+#include "src/gpu/ganesh/GrResourceCache.h"
 
-void GrTexture::markMipmapsDirty(const char* reason) {
+#include <cstdint>
+
+void GrTexture::markMipmapsDirty() {
     if (GrMipmapStatus::kValid == fMipmapStatus) {
         fMipmapStatus = GrMipmapStatus::kDirty;
-#if defined(SK_DEBUG)
-        fMipmapDirtyReason = reason;
-        if (auto* context = this->getContext()) {
-            fMipmapDirtyFlushNum    = context->priv().drawingManager()->flushNumber();
-            fMipmapDirtyWasFlushing = context->priv().drawingManager()->isFlushing();
-        }
-#endif
     }
 }
 
 void GrTexture::markMipmapsClean() {
     SkASSERT(GrMipmapStatus::kNotAllocated != fMipmapStatus);
-    SkDEBUGCODE(fMipmapRegenFailureReason = "did not fail";)
     fMipmapStatus = GrMipmapStatus::kValid;
 }
-
-#if defined(SK_DEBUG)
-void GrTexture::assertMipmapsNotDirty(const GrTextureEffect& effect) {
-    // There are some cases where we might be given a non-mipmapped texture with a
-    // mipmap filter. See skbug.com/7094.
-    if (this->mipmapped() == GrMipmapped::kYes && this->mipmapsAreDirty()) {
-        SkString msg("MM dirty unexpectedly.");
-        if (auto* context = this->getContext()) {
-            int  flushNum   = context->priv().drawingManager()->flushNumber();
-            bool isFlushing = context->priv().drawingManager()->isFlushing();
-
-            auto flushStr = [](int num, bool is) {
-                return SkStringPrintf("%s flush #%d", is ? "in" : "before", num);
-            };
-
-            msg += SkStringPrintf(
-                    " Dirtied by \"%s\" %s, now we're %s. regen failed: \"%s\"",
-                    fMipmapDirtyReason,
-                    flushStr(fMipmapDirtyFlushNum, fMipmapDirtyWasFlushing).c_str(),
-                    flushStr(flushNum, isFlushing).c_str(),
-                    fMipmapRegenFailureReason);
-        }
-        GrTextureProxy* proxy = effect.view().asTextureProxy();
-        msg += ", ";
-        msg += proxy->mipmapDirtyReport();
-        msg += SkStringPrintf(" Proxy was %s at effect creation, texture was %s.",
-                              effect.proxyDirtyAtCreation(),
-                              effect.texMMStatusAtCreation());
-        SK_ABORT("%s", msg.c_str());
-    }
-}
-#endif
 
 size_t GrTexture::onGpuMemorySize() const {
     return GrSurface::ComputeSize(this->backendFormat(), this->dimensions(),
@@ -88,7 +45,7 @@ GrTexture::GrTexture(GrGpu* gpu,
                      GrTextureType textureType,
                      GrMipmapStatus mipmapStatus,
                      std::string_view label)
-        : INHERITED(gpu, dimensions, isProtected, label)
+        : GrSurface(gpu, dimensions, isProtected, label)
         , fTextureType(textureType)
         , fMipmapStatus(mipmapStatus) {
     if (fMipmapStatus == GrMipmapStatus::kNotAllocated) {
@@ -96,12 +53,6 @@ GrTexture::GrTexture(GrGpu* gpu,
     } else {
         fMaxMipmapLevel = SkMipmap::ComputeLevelCount(this->width(), this->height());
     }
-#if defined(SK_DEBUG)
-    if (fMipmapStatus == GrMipmapStatus::kDirty) {
-        fMipmapDirtyWasFlushing = gpu->getContext()->priv().drawingManager()->isFlushing();
-        fMipmapDirtyFlushNum    = gpu->getContext()->priv().drawingManager()->flushNumber();
-    }
-#endif
     if (textureType == GrTextureType::kExternal) {
         this->setReadOnly();
     }
@@ -109,7 +60,7 @@ GrTexture::GrTexture(GrGpu* gpu,
 
 bool GrTexture::StealBackendTexture(sk_sp<GrTexture> texture,
                                     GrBackendTexture* backendTexture,
-                                    SkImage::BackendTextureReleaseProc* releaseProc) {
+                                    SkImages::BackendTextureReleaseProc* releaseProc) {
     if (!texture->unique()) {
         return false;
     }
@@ -156,7 +107,7 @@ void GrTexture::ComputeScratchKey(const GrCaps& caps,
                                   SkISize dimensions,
                                   GrRenderable renderable,
                                   int sampleCnt,
-                                  GrMipmapped mipmapped,
+                                  skgpu::Mipmapped mipmapped,
                                   GrProtected isProtected,
                                   skgpu::ScratchKey* key) {
     static const skgpu::ScratchKey::ResourceType kType = skgpu::ScratchKey::GenerateResourceType();

@@ -10,15 +10,19 @@
 #include "include/core/SkSamplingOptions.h"
 #include "include/core/SkTileMode.h"
 #include "include/gpu/graphite/BackendTexture.h"
+#include "src/core/SkTraceEvent.h"
 #include "src/gpu/graphite/Buffer.h"
 #include "src/gpu/graphite/Caps.h"
 #include "src/gpu/graphite/CommandBuffer.h"
 #include "src/gpu/graphite/ComputePipeline.h"
 #include "src/gpu/graphite/ContextPriv.h"
+#include "src/gpu/graphite/ContextUtils.h"
 #include "src/gpu/graphite/GlobalCache.h"
 #include "src/gpu/graphite/GraphicsPipeline.h"
 #include "src/gpu/graphite/GraphicsPipelineDesc.h"
 #include "src/gpu/graphite/Log.h"
+#include "src/gpu/graphite/RenderPassDesc.h"
+#include "src/gpu/graphite/RendererProvider.h"
 #include "src/gpu/graphite/ResourceCache.h"
 #include "src/gpu/graphite/Sampler.h"
 #include "src/gpu/graphite/SharedContext.h"
@@ -27,31 +31,68 @@
 
 namespace skgpu::graphite {
 
-ResourceProvider::ResourceProvider(SharedContext* sharedContext,
-                                   SingleOwner* singleOwner)
+// This is only used when tracing is enabled at compile time.
+[[maybe_unused]] static std::string to_str(const SharedContext* ctx,
+                                           const GraphicsPipelineDesc& gpDesc,
+                                           const RenderPassDesc& rpDesc) {
+    const ShaderCodeDictionary* dict = ctx->shaderCodeDictionary();
+    const RenderStep* step = ctx->rendererProvider()->lookup(gpDesc.renderStepID());
+    return GetPipelineLabel(dict, rpDesc, step, gpDesc.paintParamsID());
+}
+
+ResourceProvider::ResourceProvider(SharedContext* sharedContext,\
+                                   SingleOwner* singleOwner,
+                                   uint32_t recorderID,
+                                   size_t resourceBudget)
         : fSharedContext(sharedContext)
-        , fResourceCache(ResourceCache::Make(singleOwner))
-        , fCompiler(std::make_unique<SkSL::Compiler>(fSharedContext->caps()->shaderCaps())) {}
+        , fResourceCache(ResourceCache::Make(singleOwner, recorderID, resourceBudget)) {}
 
 ResourceProvider::~ResourceProvider() {
     fResourceCache->shutdown();
 }
 
 sk_sp<GraphicsPipeline> ResourceProvider::findOrCreateGraphicsPipeline(
-        const SkRuntimeEffectDictionary* runtimeDict,
+        const RuntimeEffectDictionary* runtimeDict,
         const GraphicsPipelineDesc& pipelineDesc,
-        const RenderPassDesc& renderPassDesc) {
+        const RenderPassDesc& renderPassDesc,
+        SkEnumBitMask<PipelineCreationFlags> pipelineCreationFlags) {
+
     auto globalCache = fSharedContext->globalCache();
     UniqueKey pipelineKey = fSharedContext->caps()->makeGraphicsPipelineKey(pipelineDesc,
                                                                             renderPassDesc);
-    sk_sp<GraphicsPipeline> pipeline = globalCache->findGraphicsPipeline(pipelineKey);
+
+    uint32_t compilationID = 0;
+    sk_sp<GraphicsPipeline> pipeline = globalCache->findGraphicsPipeline(pipelineKey,
+                                                                         pipelineCreationFlags,
+                                                                         &compilationID);
     if (!pipeline) {
         // Haven't encountered this pipeline, so create a new one. Since pipelines are shared
         // across Recorders, we could theoretically create equivalent pipelines on different
         // threads. If this happens, GlobalCache returns the first-through-gate pipeline and we
         // discard the redundant pipeline. While this is wasted effort in the rare event of a race,
         // it allows pipeline creation to be performed without locking the global cache.
-        pipeline = this->createGraphicsPipeline(runtimeDict, pipelineDesc, renderPassDesc);
+        // NOTE: The parameters to TRACE_EVENT are only evaluated inside an if-block when the
+        // category is enabled.
+        TRACE_EVENT1_ALWAYS(
+                "skia.shaders", "createGraphicsPipeline", "desc",
+                TRACE_STR_COPY(to_str(fSharedContext, pipelineDesc, renderPassDesc).c_str()));
+
+#if defined(SK_PIPELINE_LIFETIME_LOGGING)
+        bool forPrecompile =
+                SkToBool(pipelineCreationFlags & PipelineCreationFlags::kForPrecompilation);
+
+        static const char* kNames[2] = { "BeginBuildN", "BeginBuildP" };
+        TRACE_EVENT_INSTANT2("skia.gpu",
+                             TRACE_STR_STATIC(kNames[forPrecompile]),
+                             TRACE_EVENT_SCOPE_THREAD,
+                             "key", pipelineKey.hash(),
+                             "compilationID", compilationID);
+#endif
+
+        pipeline = this->createGraphicsPipeline(runtimeDict, pipelineKey,
+                                                pipelineDesc, renderPassDesc,
+                                                pipelineCreationFlags,
+                                                compilationID);
         if (pipeline) {
             // TODO: Should we store a null pipeline if we failed to create one so that subsequent
             // usage immediately sees that the pipeline cannot be created, vs. retrying every time?
@@ -77,122 +118,142 @@ sk_sp<ComputePipeline> ResourceProvider::findOrCreateComputePipeline(
 
 ////////////////////////////////////////////////////////////////////////////////////////////////
 
-sk_sp<Texture> ResourceProvider::findOrCreateScratchTexture(SkISize dimensions,
-                                                            const TextureInfo& info,
-                                                            SkBudgeted budgeted) {
+sk_sp<Texture> ResourceProvider::findOrCreateNonShareableTexture(SkISize dimensions,
+                                                                 const TextureInfo& info,
+                                                                 std::string_view label,
+                                                                 Budgeted budgeted) {
     SkASSERT(info.isValid());
+    return this->findOrCreateTexture(dimensions,
+                                     info,
+                                     std::move(label),
+                                     budgeted,
+                                     Shareable::kNo);
+}
 
-    static const ResourceType kType = GraphiteResourceKey::GenerateResourceType();
-
-    GraphiteResourceKey key;
-    // Scratch textures are not shareable
-    fSharedContext->caps()->buildKeyForTexture(dimensions, info, kType, Shareable::kNo, &key);
-
-    return this->findOrCreateTextureWithKey(dimensions, info, key, budgeted);
+sk_sp<Texture> ResourceProvider::findOrCreateScratchTexture(
+        SkISize dimensions,
+        const TextureInfo& info,
+        std::string_view label,
+        const ResourceCache::ScratchResourceSet& unavailable) {
+    SkASSERT(info.isValid());
+    return this->findOrCreateTexture(dimensions,
+                                     info,
+                                     std::move(label),
+                                     Budgeted::kYes,
+                                     Shareable::kScratch,
+                                     &unavailable);
 }
 
 sk_sp<Texture> ResourceProvider::findOrCreateDepthStencilAttachment(SkISize dimensions,
                                                                     const TextureInfo& info) {
     SkASSERT(info.isValid());
-
-    static const ResourceType kType = GraphiteResourceKey::GenerateResourceType();
-
-    GraphiteResourceKey key;
     // We always make depth and stencil attachments shareable. Between any render pass the values
     // are reset. Thus it is safe to be used by multiple different render passes without worry of
     // stomping on each other's data.
-    fSharedContext->caps()->buildKeyForTexture(dimensions, info, kType, Shareable::kYes, &key);
-
-    return this->findOrCreateTextureWithKey(dimensions, info, key, SkBudgeted::kYes);
+    return this->findOrCreateTexture(dimensions,
+                                     info,
+                                     "DepthStencilAttachment",
+                                     Budgeted::kYes,
+                                     Shareable::kYes);
 }
 
 sk_sp<Texture> ResourceProvider::findOrCreateDiscardableMSAAAttachment(SkISize dimensions,
                                                                        const TextureInfo& info) {
     SkASSERT(info.isValid());
+    // We always make discardable msaa attachments shareable. Between any render pass we discard
+    // the values of the MSAA texture. Thus it is safe to be used by multiple different render
+    // passes without worry of stomping on each other's data. It is the callings code's
+    // responsibility to populate the discardable MSAA texture with data at the start of the
+    // render pass.
+    return this->findOrCreateTexture(dimensions,
+                                     info,
+                                     "DiscardableMSAAAttachment",
+                                     Budgeted::kYes,
+                                     Shareable::kYes);
+}
+
+sk_sp<Texture> ResourceProvider::findOrCreateTexture(
+        SkISize dimensions,
+        const TextureInfo& info,
+        std::string_view label,
+        Budgeted budgeted,
+        Shareable shareable,
+        const ResourceCache::ScratchResourceSet* unavailable) {
+    // If the resource is shareable it should be budgeted since it shouldn't be backing any client
+    // owned object.
+    SkASSERT(shareable == Shareable::kNo || budgeted == Budgeted::kYes);
+    SkASSERT(shareable != Shareable::kScratch || SkToBool(unavailable));
 
     static const ResourceType kType = GraphiteResourceKey::GenerateResourceType();
 
     GraphiteResourceKey key;
-    // We always make discardable msaa attachments shareable. Between any render pass we discard
-    // the values of the MSAA texture. Thus it is safe to be used by multiple different render
-    // passes without worry of stomping on each other's data. It is the callings code responsiblity
-    // to populate the discardable MSAA texture with data at the start of the render pass.
-    fSharedContext->caps()->buildKeyForTexture(dimensions, info, kType, Shareable::kYes, &key);
+    fSharedContext->caps()->buildKeyForTexture(dimensions, info, kType, &key);
 
-    return this->findOrCreateTextureWithKey(dimensions, info, key, SkBudgeted::kYes);
-}
-
-sk_sp<Texture> ResourceProvider::findOrCreateTextureWithKey(SkISize dimensions,
-                                                            const TextureInfo& info,
-                                                            const GraphiteResourceKey& key,
-                                                            SkBudgeted budgeted) {
-    // If the resource is shareable it should be budgeted since it shouldn't be backing any client
-    // owned object.
-    SkASSERT(key.shareable() == Shareable::kNo || budgeted == SkBudgeted::kYes);
-
-    if (Resource* resource = fResourceCache->findAndRefResource(key, budgeted)) {
+    if (Resource* resource =
+                fResourceCache->findAndRefResource(key, budgeted, shareable, unavailable)) {
+        resource->setLabel(std::move(label));
         return sk_sp<Texture>(static_cast<Texture*>(resource));
     }
 
-    auto tex = this->createTexture(dimensions, info, budgeted);
+    auto tex = this->createTexture(dimensions, info);
     if (!tex) {
         return nullptr;
     }
 
-    tex->setKey(key);
-    fResourceCache->insertResource(tex.get());
+    tex->setLabel(std::move(label));
+    fResourceCache->insertResource(tex.get(), key, budgeted, shareable);
 
     return tex;
 }
 
-sk_sp<Sampler> ResourceProvider::findOrCreateCompatibleSampler(const SkSamplingOptions& smplOptions,
-                                                               SkTileMode xTileMode,
-                                                               SkTileMode yTileMode) {
+sk_sp<Texture> ResourceProvider::createWrappedTexture(const BackendTexture& backendTexture,
+                                                      std::string_view label) {
+    sk_sp<Texture> texture = this->onCreateWrappedTexture(backendTexture);
+    if (texture) {
+        texture->setLabel(std::move(label));
+        SkASSERT(texture->ownership() == Ownership::kWrapped);
+    }
+    return texture;
+}
+
+sk_sp<Sampler> ResourceProvider::findOrCreateCompatibleSampler(const SamplerDesc& samplerDesc) {
+    static constexpr Budgeted kBudgeted = Budgeted::kYes;
+    static constexpr Shareable kShareable = Shareable::kYes;
     static const ResourceType kType = GraphiteResourceKey::GenerateResourceType();
 
     GraphiteResourceKey key;
     {
-        constexpr int kNumTileModeBits   = SkNextLog2_portable(int(SkTileMode::kLastTileMode)+1);
-        constexpr int kNumFilterModeBits = SkNextLog2_portable(int(SkFilterMode::kLast)+1);
-        constexpr int kNumMipmapModeBits = SkNextLog2_portable(int(SkMipmapMode::kLast)+1);
+        // The size of the returned span accurately captures the quantity of uint32s needed whether
+        // the sampler is immutable or not. Each backend will already have encoded any specific
+        // immutable sampler details into the SamplerDesc, so there is no need to delegate to Caps
+        // to create a specific key.
+        const SkSpan<const uint32_t>& samplerData = samplerDesc.asSpan();
+        GraphiteResourceKey::Builder builder(&key, kType, samplerData.size());
 
-        constexpr int kTileModeXShift  = 0;
-        constexpr int kTileModeYShift  = kTileModeXShift  + kNumTileModeBits;
-        constexpr int kFilterModeShift = kTileModeYShift  + kNumTileModeBits;
-        constexpr int kMipmapModeShift = kFilterModeShift + kNumFilterModeBits;
-
-        static_assert(kMipmapModeShift + kNumMipmapModeBits <= 32);
-
-        // For the key we need only one uint32_t.
-        // TODO: add aniso value when used
-        static_assert(sizeof(uint32_t) == 4);
-
-        GraphiteResourceKey::Builder builder(&key, kType, 1, Shareable::kYes);
-        uint32_t myKey =
-        (static_cast<uint32_t>(xTileMode) << kTileModeXShift) |
-                     (static_cast<uint32_t>(yTileMode) << kTileModeYShift) |
-                     (static_cast<uint32_t>(smplOptions.filter) << kFilterModeShift) |
-                     (static_cast<uint32_t>(smplOptions.mipmap) << kMipmapModeShift);
-        builder[0] = myKey;
+        for (size_t i = 0; i < samplerData.size(); i++) {
+            builder[i] = samplerData[i];
+        }
     }
 
-    SkBudgeted budgeted = SkBudgeted::kYes;
-    if (Resource* resource = fResourceCache->findAndRefResource(key, budgeted)) {
+    if (Resource* resource = fResourceCache->findAndRefResource(key, kBudgeted, kShareable)) {
         return sk_sp<Sampler>(static_cast<Sampler*>(resource));
     }
-    sk_sp<Sampler> sampler = this->createSampler(smplOptions, xTileMode, yTileMode);
+
+    sk_sp<Sampler> sampler = this->createSampler(samplerDesc);
     if (!sampler) {
         return nullptr;
     }
 
-    sampler->setKey(key);
-    fResourceCache->insertResource(sampler.get());
+    fResourceCache->insertResource(sampler.get(), key, kBudgeted, kShareable);
     return sampler;
 }
 
 sk_sp<Buffer> ResourceProvider::findOrCreateBuffer(size_t size,
                                                    BufferType type,
-                                                   PrioritizeGpuReads prioritizeGpuReads) {
+                                                   AccessPattern accessPattern,
+                                                   std::string_view label) {
+    static constexpr Budgeted kBudgeted = Budgeted::kYes;
+    static constexpr Shareable kShareable = Shareable::kNo;
     static const ResourceType kType = GraphiteResourceKey::GenerateResourceType();
 
     GraphiteResourceKey key;
@@ -203,12 +264,12 @@ sk_sp<Buffer> ResourceProvider::findOrCreateBuffer(size_t size,
         static const int kSizeKeyNum32DataCnt = (sizeof(size_t) + 3) / 4;
         static const int kKeyNum32DataCnt =  kSizeKeyNum32DataCnt + 1;
 
-        SkASSERT(static_cast<uint32_t>(type)               < (1u << 3));
-        SkASSERT(static_cast<uint32_t>(prioritizeGpuReads) < (1u << 1));
+        SkASSERT(static_cast<uint32_t>(type) < (1u << 4));
+        SkASSERT(static_cast<uint32_t>(accessPattern) < (1u << 1));
 
-        GraphiteResourceKey::Builder builder(&key, kType, kKeyNum32DataCnt, Shareable::kNo);
-        builder[0] = (static_cast<uint32_t>(type)               << 0) |
-                     (static_cast<uint32_t>(prioritizeGpuReads) << 3);
+        GraphiteResourceKey::Builder builder(&key, kType, kKeyNum32DataCnt);
+        builder[0] = (static_cast<uint32_t>(type) << 0) |
+                     (static_cast<uint32_t>(accessPattern) << 4);
         size_t szKey = size;
         for (int i = 0; i < kSizeKeyNum32DataCnt; ++i) {
             builder[i + 1] = (uint32_t) szKey;
@@ -221,38 +282,83 @@ sk_sp<Buffer> ResourceProvider::findOrCreateBuffer(size_t size,
         }
     }
 
-    SkBudgeted budgeted = SkBudgeted::kYes;
-    if (Resource* resource = fResourceCache->findAndRefResource(key, budgeted)) {
+    if (Resource* resource = fResourceCache->findAndRefResource(key, kBudgeted, kShareable)) {
+        resource->setLabel(std::move(label));
         return sk_sp<Buffer>(static_cast<Buffer*>(resource));
     }
-    auto buffer = this->createBuffer(size, type, prioritizeGpuReads);
+    auto buffer = this->createBuffer(size, type, accessPattern);
     if (!buffer) {
         return nullptr;
     }
 
-    buffer->setKey(key);
-    fResourceCache->insertResource(buffer.get());
+    buffer->setLabel(std::move(label));
+    fResourceCache->insertResource(buffer.get(), key, kBudgeted, kShareable);
     return buffer;
 }
 
-BackendTexture ResourceProvider::createBackendTexture(SkISize dimensions, const TextureInfo& info) {
-    const auto maxTextureSize = fSharedContext->caps()->maxTextureSize();
+namespace {
+bool dimensions_are_valid(const int maxTextureSize, const SkISize& dimensions) {
     if (dimensions.isEmpty() ||
         dimensions.width()  > maxTextureSize ||
         dimensions.height() > maxTextureSize) {
-        SKGPU_LOG_W("call to createBackendTexture has requested dimensions (%d, %d) larger than the"
+        SKGPU_LOG_W("Call to createBackendTexture has requested dimensions (%d, %d) larger than the"
                     " supported gpu max texture size: %d. Or the dimensions are empty.",
                     dimensions.fWidth, dimensions.fHeight, maxTextureSize);
+        return false;
+    }
+    return true;
+}
+}
+
+BackendTexture ResourceProvider::createBackendTexture(SkISize dimensions, const TextureInfo& info) {
+    if (!dimensions_are_valid(fSharedContext->caps()->maxTextureSize(), dimensions)) {
         return {};
     }
-
     return this->onCreateBackendTexture(dimensions, info);
 }
 
-void ResourceProvider::deleteBackendTexture(BackendTexture& texture) {
+#ifdef SK_BUILD_FOR_ANDROID
+BackendTexture ResourceProvider::createBackendTexture(AHardwareBuffer* hardwareBuffer,
+                                                      bool isRenderable,
+                                                      bool isProtectedContent,
+                                                      SkISize dimensions,
+                                                      bool fromAndroidWindow) const {
+    if (!dimensions_are_valid(fSharedContext->caps()->maxTextureSize(), dimensions)) {
+        return {};
+    }
+    return this->onCreateBackendTexture(hardwareBuffer,
+                                        isRenderable,
+                                        isProtectedContent,
+                                        dimensions,
+                                        fromAndroidWindow);
+}
+
+BackendTexture ResourceProvider::onCreateBackendTexture(AHardwareBuffer*,
+                                                        bool isRenderable,
+                                                        bool isProtectedContent,
+                                                        SkISize dimensions,
+                                                        bool fromAndroidWindow) const {
+    return {};
+}
+#endif
+
+void ResourceProvider::deleteBackendTexture(const BackendTexture& texture) {
     this->onDeleteBackendTexture(texture);
-    // Invalidate the texture;
-    texture = BackendTexture();
+}
+
+void ResourceProvider::freeGpuResources() {
+    this->onFreeGpuResources();
+
+    // TODO: Are there Resources that are ref'd by the ResourceProvider or its subclasses that need
+    // be released? If we ever find that we're holding things directly on the ResourceProviders we
+    // call down into the subclasses to allow them to release things.
+
+    fResourceCache->purgeResources();
+}
+
+void ResourceProvider::purgeResourcesNotUsedSince(StdSteadyClock::time_point purgeTime) {
+    this->onPurgeResourcesNotUsedSince(purgeTime);
+    fResourceCache->purgeResourcesNotUsedSince(purgeTime);
 }
 
 }  // namespace skgpu::graphite

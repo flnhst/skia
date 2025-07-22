@@ -5,7 +5,7 @@
  * found in the LICENSE file.
  */
 
-#include "include/utils/SkRandom.h"
+#include "src/base/SkRandom.h"
 #include "src/gpu/graphite/geom/IntersectionTree.h"
 #include "tests/Test.h"
 
@@ -29,7 +29,7 @@ private:
 
 #define CHECK(A) REPORTER_ASSERT(reporter, A)
 
-DEF_GRAPHITE_TEST(skgpu_IntersectionTree, reporter) {
+DEF_GRAPHITE_TEST(skgpu_IntersectionTree, reporter, CtsEnforcement::kApiLevel_V) {
     SkRandom rand;
     {
         SimpleIntersectionTree simpleTree;

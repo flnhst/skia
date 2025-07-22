@@ -7,16 +7,22 @@
 
 #include "src/pdf/SkPDFTypes.h"
 
-#include "include/core/SkData.h"
 #include "include/core/SkExecutor.h"
 #include "include/core/SkStream.h"
-#include "include/private/SkTo.h"
+#include "include/core/SkString.h"
+#include "include/docs/SkPDFDocument.h"
+#include "include/private/base/SkDebug.h"
+#include "include/private/base/SkTo.h"
+#include "src/base/SkUTF.h"
+#include "src/base/SkUtils.h"
 #include "src/core/SkStreamPriv.h"
 #include "src/pdf/SkDeflate.h"
 #include "src/pdf/SkPDFDocumentPriv.h"
 #include "src/pdf/SkPDFUnion.h"
 #include "src/pdf/SkPDFUtils.h"
 
+#include <cstring>
+#include <functional>
 #include <new>
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -305,7 +311,7 @@ SkPDFUnion SkPDFUnion::ColorComponent(uint8_t value) {
 }
 
 SkPDFUnion SkPDFUnion::ColorComponentF(float value) {
-    return SkPDFUnion(Type::kColorComponentF, SkFloatToScalar(value));
+    return SkPDFUnion(Type::kColorComponentF, value);
 }
 
 SkPDFUnion SkPDFUnion::Bool(bool value) {
@@ -383,6 +389,14 @@ void SkPDFArray::emitObject(SkWStream* stream) const {
         }
     }
     stream->writeText("]");
+}
+
+void SkPDFOptionalArray::emitObject(SkWStream* stream) const {
+    if (this->size() == 1) {
+        this->values()[0].emitObject(stream);
+    } else {
+        this->SkPDFArray::emitObject(stream);
+    }
 }
 
 void SkPDFArray::append(SkPDFUnion&& value) {
@@ -527,13 +541,17 @@ void SkPDFDict::insertTextString(const char key[], SkString value) {
     fRecords.emplace_back(SkPDFUnion::Name(key), SkPDFUnion::TextString(std::move(value)));
 }
 
+void SkPDFDict::insertUnion(const char key[], SkPDFUnion&& value) {
+    fRecords.emplace_back(SkPDFUnion::Name(key), std::move(value));
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 
 
 static void serialize_stream(SkPDFDict* origDict,
                              SkStreamAsset* stream,
-                             bool deflate,
+                             SkPDFSteamCompressionEnabled compress,
                              SkPDFDocument* doc,
                              SkPDFIndirectReference ref) {
     // Code assumes that the stream starts at the beginning.
@@ -543,22 +561,14 @@ static void serialize_stream(SkPDFDict* origDict,
     SkPDFDict tmpDict;
     SkPDFDict& dict = origDict ? *origDict : tmpDict;
     static const size_t kMinimumSavings = strlen("/Filter_/FlateDecode_");
-    if (deflate && stream->getLength() > kMinimumSavings) {
+    if (doc->metadata().fCompressionLevel != SkPDF::Metadata::CompressionLevel::None &&
+        compress == SkPDFSteamCompressionEnabled::Yes &&
+        stream->getLength() > kMinimumSavings)
+    {
         SkDynamicMemoryWStream compressedData;
-        SkDeflateWStream deflateWStream(&compressedData);
+        SkDeflateWStream deflateWStream(&compressedData,SkToInt(doc->metadata().fCompressionLevel));
         SkStreamCopy(&deflateWStream, stream);
         deflateWStream.finalize();
-        #ifdef SK_PDF_BASE85_BINARY
-        {
-            SkPDFUtils::Base85Encode(compressedData.detachAsStream(), &compressedData);
-            tmp = compressedData.detachAsStream();
-            stream = tmp.get();
-            auto filters = SkPDFMakeArray();
-            filters->appendName("ASCII85Decode");
-            filters->appendName("FlateDecode");
-            dict.insertObject("Filter", std::move(filters));
-        }
-        #else
         if (stream->getLength() > compressedData.bytesWritten() + kMinimumSavings) {
             tmp = compressedData.detachAsStream();
             stream = tmp.get();
@@ -566,7 +576,6 @@ static void serialize_stream(SkPDFDict* origDict,
         } else {
             SkAssertResult(stream->rewind());
         }
-        #endif
 
     }
     dict.insertInt("Length", stream->getLength());
@@ -578,7 +587,7 @@ static void serialize_stream(SkPDFDict* origDict,
 SkPDFIndirectReference SkPDFStreamOut(std::unique_ptr<SkPDFDict> dict,
                                       std::unique_ptr<SkStreamAsset> content,
                                       SkPDFDocument* doc,
-                                      bool deflate) {
+                                      SkPDFSteamCompressionEnabled compress) {
     SkPDFIndirectReference ref = doc->reserveRef();
     if (SkExecutor* executor = doc->executor()) {
         SkPDFDict* dictPtr = dict.release();
@@ -586,14 +595,14 @@ SkPDFIndirectReference SkPDFStreamOut(std::unique_ptr<SkPDFDict> dict,
         // Pass ownership of both pointers into a std::function, which should
         // only be executed once.
         doc->incrementJobCount();
-        executor->add([dictPtr, contentPtr, deflate, doc, ref]() {
-            serialize_stream(dictPtr, contentPtr, deflate, doc, ref);
+        executor->add([dictPtr, contentPtr, compress, doc, ref]() {
+            serialize_stream(dictPtr, contentPtr, compress, doc, ref);
             delete dictPtr;
             delete contentPtr;
             doc->signalJobComplete();
         });
         return ref;
     }
-    serialize_stream(dict.get(), content.get(), deflate, doc, ref);
+    serialize_stream(dict.get(), content.get(), compress, doc, ref);
     return ref;
 }

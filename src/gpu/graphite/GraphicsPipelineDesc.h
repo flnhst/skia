@@ -8,8 +8,8 @@
 #ifndef skgpu_graphite_GraphicsPipelineDesc_DEFINED
 #define skgpu_graphite_GraphicsPipelineDesc_DEFINED
 
-#include "include/private/SkUniquePaintParamsID.h"
 #include "src/gpu/graphite/Renderer.h"
+#include "src/gpu/graphite/UniquePaintParamsID.h"
 
 namespace skgpu::graphite {
 
@@ -19,9 +19,15 @@ namespace skgpu::graphite {
  */
 class GraphicsPipelineDesc {
 public:
-    GraphicsPipelineDesc(const RenderStep* renderStep, SkUniquePaintParamsID paintID)
-        : fRenderStepID(renderStep->uniqueID())
+    GraphicsPipelineDesc() : fRenderStepID(RenderStep::RenderStepID::kInvalid)
+                           , fPaintID(UniquePaintParamsID::InvalidID()) {}
+    GraphicsPipelineDesc(RenderStep::RenderStepID renderStepID, UniquePaintParamsID paintID)
+        : fRenderStepID(renderStepID)
         , fPaintID(paintID) {}
+    bool isValid() const {
+        return fRenderStepID != RenderStep::RenderStepID::kInvalid &&
+               fPaintID != UniquePaintParamsID::InvalidID();
+    }
 
     bool operator==(const GraphicsPipelineDesc& that) const {
         return fRenderStepID == that.fRenderStepID && fPaintID == that.fPaintID;
@@ -33,9 +39,9 @@ public:
 
     // Describes the geometric portion of the pipeline's program and the pipeline's fixed state
     // (except for renderpass-level state that will never change between draws).
-    uint32_t renderStepID() const { return fRenderStepID; }
+    RenderStep::RenderStepID renderStepID() const { return fRenderStepID; }
     // UniqueID of the required PaintParams
-    SkUniquePaintParamsID paintParamsID() const { return fPaintID; }
+    UniquePaintParamsID paintParamsID() const { return fPaintID; }
 
 private:
     // Each RenderStep defines a fixed set of attributes and rasterization state, as well as the
@@ -43,8 +49,8 @@ private:
     // is combined with the rest of the shader generated from the PaintParams. Because each
     // RenderStep is fixed, its pointer can be used as a proxy for everything that it specifies in
     // the GraphicsPipeline.
-    uint32_t fRenderStepID;
-    SkUniquePaintParamsID fPaintID;
+    RenderStep::RenderStepID fRenderStepID;
+    UniquePaintParamsID fPaintID;
 };
 
 } // namespace skgpu::graphite

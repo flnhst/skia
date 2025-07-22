@@ -9,14 +9,14 @@
 #define SkRefCnt_DEFINED
 
 #include "include/core/SkTypes.h"
-#include "include/private/SkTemplates.h"
+#include "include/private/base/SkDebug.h"
 
-#include <atomic>       // std::atomic, std::memory_order_*
-#include <cstddef>      // std::nullptr_t
-#include <iosfwd>       // std::basic_ostream
-#include <memory>       // TODO: unused
-#include <type_traits>  // std::enable_if, std::is_convertible
-#include <utility>      // std::forward, std::swap
+#include <atomic>
+#include <cstddef>
+#include <cstdint>
+#include <iosfwd>
+#include <type_traits>
+#include <utility>
 
 /** \class SkRefCntBase
 
@@ -217,12 +217,7 @@ private:
  *  may be considered as trivially relocatable by the compiler so that destroying-move operations
  *  i.e. move constructor followed by destructor can be optimized to memcpy.
  */
-#if defined(__clang__) && defined(__has_cpp_attribute) && __has_cpp_attribute(clang::trivial_abi)
-#define SK_SP_TRIVIAL_ABI [[clang::trivial_abi]]
-#else
-#define SK_SP_TRIVIAL_ABI
-#endif
-template <typename T> class SK_SP_TRIVIAL_ABI sk_sp {
+template <typename T> class SK_TRIVIAL_ABI sk_sp {
 public:
     using element_type = T;
 
@@ -326,7 +321,7 @@ public:
      *  The caller must assume ownership of the object, and manage its reference count directly.
      *  No call to unref() will be made.
      */
-    T* SK_WARN_UNUSED_RESULT release() {
+    [[nodiscard]] T* release() {
         T* ptr = fPtr;
         fPtr = nullptr;
         return ptr;
@@ -371,6 +366,8 @@ template <typename C, typename CT, typename T>
 auto operator<<(std::basic_ostream<C, CT>& os, const sk_sp<T>& sp) -> decltype(os << sp.get()) {
     return os << sp.get();
 }
+
+template <typename T> sk_sp(T*) -> sk_sp<T>;
 
 template <typename T, typename... Args>
 sk_sp<T> sk_make_sp(Args&&... args) {

@@ -18,7 +18,7 @@
 #include "include/core/SkTypes.h"
 #include "include/effects/SkDashPathEffect.h"
 #include "include/utils/SkParsePath.h"
-#include "include/utils/SkRandom.h"
+#include "src/base/SkRandom.h"
 #include "src/core/SkOSFile.h"
 
 #include <stdio.h>
@@ -244,7 +244,7 @@ DEF_SIMPLE_GM(parsedpaths, canvas, kParsePathTestDimension, kParsePathTestDimens
                 SkString spec;
                 uint32_t y = rand.nextRangeU(30, 70);
                 uint32_t x = rand.nextRangeU(30, 70);
-                spec.printf("M %d,%d\n", x, y);
+                spec.printf("M %u,%u\n", x, y);
                 for (uint32_t i = rand.nextRangeU(0, 10); i--; ) {
                     spec.append(make_random_svg_path(&rand));
                 }

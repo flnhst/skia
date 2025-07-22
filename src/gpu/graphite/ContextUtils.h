@@ -8,67 +8,70 @@
 #ifndef skgpu_graphite_ContextUtils_DEFINED
 #define skgpu_graphite_ContextUtils_DEFINED
 
-#include "src/core/SkPaintParamsKey.h"
-#include "src/gpu/graphite/PipelineDataCache.h"
+#include "include/core/SkBlendMode.h"
+#include "src/gpu/graphite/PipelineData.h"
 
+#include <optional>
+
+class SkColorInfo;
 class SkM44;
-class SkPaintParamsKeyBuilder;
-class SkPipelineDataGatherer;
-class SkRuntimeEffectDictionary;
-class SkUniquePaintParamsID;
 
 namespace skgpu::graphite {
 
-class DrawParams;
-class GraphicsPipelineDesc;
+class ComputeStep;
+enum class Coverage;
+enum class DstReadStrategy;
+class Geometry;
 class PaintParams;
+class PipelineDataGatherer;
 class Recorder;
+struct RenderPassDesc;
 class RenderStep;
+class ShaderCodeDictionary;
+class UniformManager;
+class UniquePaintParamsID;
 
-std::tuple<SkUniquePaintParamsID, const SkUniformDataBlock*, const SkTextureDataBlock*>
-ExtractPaintData(Recorder*,
-                 SkPipelineDataGatherer* gatherer,
-                 SkPaintParamsKeyBuilder* builder,
-                 const SkM44& local2Dev,
-                 const PaintParams&);
+struct ResourceBindingRequirements;
 
-std::tuple<const SkUniformDataBlock*, const SkTextureDataBlock*>
-ExtractRenderStepData(UniformDataCache* uniformDataCache,
-                      TextureDataCache* textureDataCache,
-                      SkPipelineDataGatherer* gatherer,
-                      const RenderStep* step,
-                      const DrawParams& params);
+UniquePaintParamsID ExtractPaintData(Recorder*,
+                                     PipelineDataGatherer* gatherer,
+                                     PaintParamsKeyBuilder* builder,
+                                     const Layout layout,
+                                     const SkM44& local2Dev,
+                                     const PaintParams&,
+                                     const Geometry& geometry,
+                                     const SkColorInfo& targetColorInfo);
 
-std::string GetSkSLVS(const RenderStep* step,
-                      bool defineShadingSsboIndexVarying,
-                      bool defineLocalCoordsVarying);
+// Intrinsic uniforms used by every program created in Graphite.
+//
+// `viewport` should hold the actual viewport set as backend state (defining the NDC -> pixel
+// transform). The viewport's dimensions are used to define the SkDevice->NDC transform applied in
+// the vertex shader, but this assumes that the (0,0) device coordinate maps to the corner of the
+// top-left of the NDC cube. The viewport's origin is used in the fragment shader to reconstruct
+// the logical fragment coordinate from the target's current frag coord (which are not relative to
+// active viewport).
+//
+// It is assumed that `dstReadBounds` is in the same coordinate space as the `viewport` (e.g.
+// final backing target's pixel coords) and that its width and height match the dimensions of the
+// texture to be sampled for dst reads.
+static constexpr Uniform kIntrinsicUniforms[] = { {"viewport",      SkSLType::kFloat4},
+                                                  {"dstReadBounds", SkSLType::kFloat4} };
 
-std::string GetSkSLFS(const SkShaderCodeDictionary*,
-                      const SkRuntimeEffectDictionary*,
-                      const RenderStep* renderStep,
-                      SkUniquePaintParamsID paintID,
-                      bool useStorageBuffers,
-                      BlendInfo* blendInfo,
-                      bool* requiresLocalCoordsVarying);
+void CollectIntrinsicUniforms(const Caps* caps,
+                              SkIRect viewport,
+                              SkIRect dstReadBounds,
+                              UniformManager*);
 
-std::string EmitPaintParamsUniforms(int bufferID,
-                                    const char* name,
-                                    const std::vector<SkPaintParamsKey::BlockReader>&);
-std::string EmitRenderStepUniforms(int bufferID, const char* name,
-                                   SkSpan<const SkUniform> uniforms);
-std::string EmitPaintParamsStorageBuffer(int bufferID,
-                                         const char* bufferTypePrefix,
-                                         const char* bufferNamePrefix,
-                                         const std::vector<SkPaintParamsKey::BlockReader>& readers);
-std::string EmitStorageBufferAccess(const char* bufferNamePrefix,
-                                    const char* ssboIndex,
-                                    const char* uniformName);
-std::string EmitTexturesAndSamplers(const std::vector<SkPaintParamsKey::BlockReader>&,
-                                    int* binding);
-std::string EmitVaryings(const RenderStep* step,
-                         const char* direction,
-                         bool emitShadingSsboIndexVarying,
-                         bool emitLocalCoordsVarying);
+bool IsDstReadRequired(const Caps*, std::optional<SkBlendMode>, Coverage);
+
+std::string GetPipelineLabel(const ShaderCodeDictionary*,
+                             const RenderPassDesc& renderPassDesc,
+                             const RenderStep* renderStep,
+                             UniquePaintParamsID paintID);
+
+std::string BuildComputeSkSL(const Caps*, const ComputeStep*);
+
+std::string EmitSamplerLayout(const ResourceBindingRequirements&, int* binding);
 
 } // namespace skgpu::graphite
 

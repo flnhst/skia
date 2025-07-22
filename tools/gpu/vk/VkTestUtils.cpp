@@ -5,6 +5,8 @@
  * found in the LICENSE file.
  */
 
+#include "src/gpu/vk/VulkanInterface.h"
+#include "tools/gpu/vk/VkTestMemoryAllocator.h"
 #include "tools/gpu/vk/VkTestUtils.h"
 
 #ifdef SK_VULKAN
@@ -28,15 +30,16 @@
 #if defined(__GLIBC__)
 #include <execinfo.h>
 #endif
-#include "include/gpu/vk/GrVkBackendContext.h"
 #include "include/gpu/vk/VulkanBackendContext.h"
 #include "include/gpu/vk/VulkanExtensions.h"
-#include "src/core/SkAutoMalloc.h"
-#include "src/ports/SkOSLibrary.h"
+#include "src/base/SkAutoMalloc.h"
+#include "tools/library/LoadDynamicLibrary.h"
 
 #if defined(SK_ENABLE_SCOPED_LSAN_SUPPRESSIONS)
 #include <sanitizer/lsan_interface.h>
 #endif
+
+using namespace skia_private;
 
 namespace sk_gpu_test {
 
@@ -160,10 +163,57 @@ VKAPI_ATTR VkBool32 VKAPI_CALL DebugReportCallback(
         }                                                                          \
     } while (0)
 
+// Returns the index into layers array for the layer we want. Returns -1 if not supported.
+static bool should_include_extension(const char* extensionName) {
+    const char* kValidExtensions[] = {
+            // single merged layer
+            VK_EXT_BLEND_OPERATION_ADVANCED_EXTENSION_NAME,
+            VK_EXT_CONSERVATIVE_RASTERIZATION_EXTENSION_NAME,
+            VK_EXT_DEBUG_REPORT_EXTENSION_NAME,
+            VK_EXT_DEVICE_FAULT_EXTENSION_NAME,
+            VK_EXT_FRAME_BOUNDARY_EXTENSION_NAME,
+            VK_EXT_IMAGE_DRM_FORMAT_MODIFIER_EXTENSION_NAME,
+            VK_EXT_QUEUE_FAMILY_FOREIGN_EXTENSION_NAME,
+            VK_EXT_RGBA10X6_FORMATS_EXTENSION_NAME,
+            VK_KHR_BIND_MEMORY_2_EXTENSION_NAME,
+            VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME,
+            VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME,
+            VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME,
+            VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME,
+            VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
+            VK_KHR_IMAGE_FORMAT_LIST_EXTENSION_NAME,
+            VK_KHR_MAINTENANCE1_EXTENSION_NAME,
+            VK_KHR_MAINTENANCE2_EXTENSION_NAME,
+            VK_KHR_MAINTENANCE3_EXTENSION_NAME,
+            VK_KHR_SAMPLER_YCBCR_CONVERSION_EXTENSION_NAME,
+            VK_KHR_SURFACE_EXTENSION_NAME,
+            VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+            // Below are all platform specific extensions. The name macros like we use above are
+            // all defined in platform specific vulkan headers. We currently don't include these
+            // headers as they are a little bit of a pain (e.g. windows headers requires including
+            // <windows.h> which causes all sorts of fun annoyances/problems. So instead we are
+            // just listing the strings these macros are defined to. This really shouldn't cause
+            // any long term issues as the chances of the strings connected to the name macros
+            // changing is next to zero.
+            "VK_KHR_win32_surface", // VK_KHR_WIN32_SURFACE_EXTENSION_NAME
+            "VK_KHR_xcb_surface", // VK_KHR_XCB_SURFACE_EXTENSION_NAME,
+            "VK_ANDROID_external_memory_android_hardware_buffer",
+            // VK_ANDROID_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER_EXTENSION_NAME,
+            "VK_KHR_android_surface", // VK_KHR_ANDROID_SURFACE_EXTENSION_NAME,
+    };
+
+    for (size_t i = 0; i < std::size(kValidExtensions); ++i) {
+        if (!strcmp(extensionName, kValidExtensions[i])) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static bool init_instance_extensions_and_layers(PFN_vkGetInstanceProcAddr getInstProc,
                                                 uint32_t specVersion,
-                                                SkTArray<VkExtensionProperties>* instanceExtensions,
-                                                SkTArray<VkLayerProperties>* instanceLayers) {
+                                                TArray<VkExtensionProperties>* instanceExtensions,
+                                                TArray<VkLayerProperties>* instanceLayers) {
     if (getInstProc == nullptr) {
         return false;
     }
@@ -212,13 +262,15 @@ static bool init_instance_extensions_and_layers(PFN_vkGetInstanceProcAddr getIns
             return false;
         }
         for (uint32_t i = 0; i < extensionCount; ++i) {
-            instanceExtensions->push_back() = extensions[i];
+            if (should_include_extension(extensions[i].extensionName)) {
+                instanceExtensions->push_back() = extensions[i];
+            }
         }
         delete [] extensions;
     }
 
     // via explicitly enabled layers
-    layerCount = instanceLayers->count();
+    layerCount = instanceLayers->size();
     for (uint32_t layerIndex = 0; layerIndex < layerCount; ++layerIndex) {
         uint32_t extensionCount = 0;
         res = grVkEnumerateInstanceExtensionProperties((*instanceLayers)[layerIndex].layerName,
@@ -234,7 +286,9 @@ static bool init_instance_extensions_and_layers(PFN_vkGetInstanceProcAddr getIns
             return false;
         }
         for (uint32_t i = 0; i < extensionCount; ++i) {
-            instanceExtensions->push_back() = extensions[i];
+            if (should_include_extension(extensions[i].extensionName)) {
+                instanceExtensions->push_back() = extensions[i];
+            }
         }
         delete[] extensions;
     }
@@ -244,10 +298,11 @@ static bool init_instance_extensions_and_layers(PFN_vkGetInstanceProcAddr getIns
 
 #define GET_PROC_LOCAL(F, inst, device) PFN_vk ## F F = (PFN_vk ## F) getProc("vk" #F, inst, device)
 
-static bool init_device_extensions_and_layers(skgpu::VulkanGetProc getProc, uint32_t specVersion,
-                                              VkInstance inst, VkPhysicalDevice physDev,
-                                              SkTArray<VkExtensionProperties>* deviceExtensions,
-                                              SkTArray<VkLayerProperties>* deviceLayers) {
+static bool init_device_extensions_and_layers(const skgpu::VulkanGetProc& getProc,
+                                              uint32_t specVersion, VkInstance inst,
+                                              VkPhysicalDevice physDev,
+                                              TArray<VkExtensionProperties>* deviceExtensions,
+                                              TArray<VkLayerProperties>* deviceLayers) {
     if (getProc == nullptr) {
         return false;
     }
@@ -301,13 +356,15 @@ static bool init_device_extensions_and_layers(skgpu::VulkanGetProc getProc, uint
             return false;
         }
         for (uint32_t i = 0; i < extensionCount; ++i) {
-            deviceExtensions->push_back() = extensions[i];
+            if (should_include_extension(extensions[i].extensionName)) {
+                deviceExtensions->push_back() = extensions[i];
+            }
         }
         delete[] extensions;
     }
 
     // via explicitly enabled layers
-    layerCount = deviceLayers->count();
+    layerCount = deviceLayers->size();
     for (uint32_t layerIndex = 0; layerIndex < layerCount; ++layerIndex) {
         uint32_t extensionCount = 0;
         res = EnumerateDeviceExtensionProperties(physDev,
@@ -325,7 +382,9 @@ static bool init_device_extensions_and_layers(skgpu::VulkanGetProc getProc, uint
             return false;
         }
         for (uint32_t i = 0; i < extensionCount; ++i) {
-            deviceExtensions->push_back() = extensions[i];
+            if (should_include_extension(extensions[i].extensionName)) {
+                deviceExtensions->push_back() = extensions[i];
+            }
         }
         delete[] extensions;
     }
@@ -388,9 +447,10 @@ static bool destroy_instance(PFN_vkGetInstanceProcAddr getInstProc, VkInstance i
     return true;
 }
 
-static bool setup_features(skgpu::VulkanGetProc getProc, VkInstance inst, VkPhysicalDevice physDev,
-                           uint32_t physDeviceVersion, skgpu::VulkanExtensions* extensions,
-                           VkPhysicalDeviceFeatures2* features, bool isProtected) {
+static bool setup_features(const skgpu::VulkanGetProc& getProc, VkInstance inst,
+                           VkPhysicalDevice physDev, uint32_t physDeviceVersion,
+                           skgpu::VulkanExtensions* extensions, VkPhysicalDeviceFeatures2* features,
+                           bool isProtected) {
     SkASSERT(physDeviceVersion >= VK_MAKE_VERSION(1, 1, 0) ||
              extensions->hasExtension(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME, 1));
 
@@ -453,47 +513,12 @@ static bool setup_features(skgpu::VulkanGetProc getProc, VkInstance inst, VkPhys
 }
 
 bool CreateVkBackendContext(PFN_vkGetInstanceProcAddr getInstProc,
-                            GrVkBackendContext* ctx,
-                            skgpu::VulkanExtensions* extensions,
-                            VkPhysicalDeviceFeatures2* features,
-                            VkDebugReportCallbackEXT* debugCallback,
-                            uint32_t* presentQueueIndexPtr,
-                            CanPresentFn canPresent,
-                            bool isProtected) {
-    skgpu::VulkanBackendContext skgpuCtx;
-    if (!CreateVkBackendContext(getInstProc,
-                                &skgpuCtx,
-                                extensions,
-                                features,
-                                debugCallback,
-                                presentQueueIndexPtr,
-                                canPresent,
-                                isProtected)) {
-        return false;
-    }
-    ctx->fInstance = skgpuCtx.fInstance;
-    ctx->fPhysicalDevice = skgpuCtx.fPhysicalDevice;
-    ctx->fDevice = skgpuCtx.fDevice;
-    ctx->fQueue = skgpuCtx.fQueue;
-    ctx->fGraphicsQueueIndex = skgpuCtx.fGraphicsQueueIndex;
-    ctx->fMaxAPIVersion = skgpuCtx.fMaxAPIVersion;
-    ctx->fVkExtensions = skgpuCtx.fVkExtensions;
-    ctx->fDeviceFeatures2 = skgpuCtx.fDeviceFeatures2;
-    ctx->fGetProc = skgpuCtx.fGetProc;
-    ctx->fOwnsInstanceAndDevice = false;
-    ctx->fProtectedContext =
-            skgpuCtx.fProtectedContext == skgpu::Protected::kYes ? GrProtected::kYes
-                                                                 : GrProtected::kNo;
-    return true;
-}
-
-bool CreateVkBackendContext(PFN_vkGetInstanceProcAddr getInstProc,
                             skgpu::VulkanBackendContext* ctx,
                             skgpu::VulkanExtensions* extensions,
                             VkPhysicalDeviceFeatures2* features,
                             VkDebugReportCallbackEXT* debugCallback,
                             uint32_t* presentQueueIndexPtr,
-                            CanPresentFn canPresent,
+                            const CanPresentFn& canPresent,
                             bool isProtected) {
     VkResult err;
 
@@ -525,7 +550,7 @@ bool CreateVkBackendContext(PFN_vkGetInstanceProcAddr getInstProc,
 
     instanceVersion = std::min(instanceVersion, apiVersion);
 
-    SkSTArray<2, VkPhysicalDevice> physDevs;
+    STArray<2, VkPhysicalDevice> physDevs;
     VkDevice device;
     VkInstance inst = VK_NULL_HANDLE;
 
@@ -539,8 +564,8 @@ bool CreateVkBackendContext(PFN_vkGetInstanceProcAddr getInstProc,
         apiVersion,                         // apiVersion
     };
 
-    SkTArray<VkLayerProperties> instanceLayers;
-    SkTArray<VkExtensionProperties> instanceExtensions;
+    TArray<VkLayerProperties> instanceLayers;
+    TArray<VkExtensionProperties> instanceExtensions;
 
     if (!init_instance_extensions_and_layers(getInstProc, instanceVersion,
                                              &instanceExtensions,
@@ -548,15 +573,13 @@ bool CreateVkBackendContext(PFN_vkGetInstanceProcAddr getInstProc,
         return false;
     }
 
-    SkTArray<const char*> instanceLayerNames;
-    SkTArray<const char*> instanceExtensionNames;
-    for (int i = 0; i < instanceLayers.count(); ++i) {
+    TArray<const char*> instanceLayerNames;
+    TArray<const char*> instanceExtensionNames;
+    for (int i = 0; i < instanceLayers.size(); ++i) {
         instanceLayerNames.push_back(instanceLayers[i].layerName);
     }
-    for (int i = 0; i < instanceExtensions.count(); ++i) {
-        if (strncmp(instanceExtensions[i].extensionName, "VK_KHX", 6) != 0) {
-            instanceExtensionNames.push_back(instanceExtensions[i].extensionName);
-        }
+    for (int i = 0; i < instanceExtensions.size(); ++i) {
+        instanceExtensionNames.push_back(instanceExtensions[i].extensionName);
     }
 
     const VkInstanceCreateInfo instance_create = {
@@ -564,9 +587,9 @@ bool CreateVkBackendContext(PFN_vkGetInstanceProcAddr getInstProc,
         nullptr,                                   // pNext
         0,                                         // flags
         &app_info,                                 // pApplicationInfo
-        (uint32_t) instanceLayerNames.count(),     // enabledLayerNameCount
+        (uint32_t) instanceLayerNames.size(),      // enabledLayerNameCount
         instanceLayerNames.begin(),                // ppEnabledLayerNames
-        (uint32_t) instanceExtensionNames.count(), // enabledExtensionNameCount
+        (uint32_t) instanceExtensionNames.size(),  // enabledExtensionNameCount
         instanceExtensionNames.begin(),            // ppEnabledExtensionNames
     };
 
@@ -590,7 +613,7 @@ bool CreateVkBackendContext(PFN_vkGetInstanceProcAddr getInstProc,
 
 #ifdef SK_ENABLE_VK_LAYERS
     *debugCallback = VK_NULL_HANDLE;
-    for (int i = 0; i < instanceExtensionNames.count() && !hasDebugExtension; ++i) {
+    for (int i = 0; i < instanceExtensionNames.size() && !hasDebugExtension; ++i) {
         if (!strcmp(instanceExtensionNames[i], VK_EXT_DEBUG_REPORT_EXTENSION_NAME)) {
             hasDebugExtension = true;
         }
@@ -709,8 +732,8 @@ bool CreateVkBackendContext(PFN_vkGetInstanceProcAddr getInstProc,
         presentQueueIndex = graphicsQueueIndex;
     }
 
-    SkTArray<VkLayerProperties> deviceLayers;
-    SkTArray<VkExtensionProperties> deviceExtensions;
+    TArray<VkLayerProperties> deviceLayers;
+    TArray<VkExtensionProperties> deviceExtensions;
     if (!init_device_extensions_and_layers(getProc, physDeviceVersion,
                                            inst, physDev,
                                            &deviceExtensions,
@@ -719,50 +742,20 @@ bool CreateVkBackendContext(PFN_vkGetInstanceProcAddr getInstProc,
         return false;
     }
 
-    SkTArray<const char*> deviceLayerNames;
-    SkTArray<const char*> deviceExtensionNames;
-    for (int i = 0; i < deviceLayers.count(); ++i) {
+    TArray<const char*> deviceLayerNames;
+    TArray<const char*> deviceExtensionNames;
+    for (int i = 0; i < deviceLayers.size(); ++i) {
         deviceLayerNames.push_back(deviceLayers[i].layerName);
     }
 
-    // We can't have both VK_KHR_buffer_device_address and VK_EXT_buffer_device_address as
-    // extensions. So see if we have the KHR version and if so don't push back the EXT version in
-    // the next loop.
-    bool hasKHRBufferDeviceAddress = false;
-    for (int i = 0; i < deviceExtensions.count(); ++i) {
-        if (!strcmp(deviceExtensions[i].extensionName, "VK_KHR_buffer_device_address")) {
-            hasKHRBufferDeviceAddress = true;
-            break;
-        }
-    }
-
-    for (int i = 0; i < deviceExtensions.count(); ++i) {
-        // Don't use experimental extensions since they typically don't work with debug layers and
-        // often are missing dependecy requirements for other extensions. Additionally, these are
-        // often left behind in the driver even after they've been promoted to real extensions.
-        if (0 != strncmp(deviceExtensions[i].extensionName, "VK_KHX", 6) &&
-            0 != strncmp(deviceExtensions[i].extensionName, "VK_NVX", 6)) {
-
-            // This is an nvidia extension that isn't supported by the debug layers so we get lots
-            // of warnings. We don't actually use it, so it is easiest to just not enable it.
-            if (0 == strcmp(deviceExtensions[i].extensionName, "VK_NV_low_latency") ||
-                0 == strcmp(deviceExtensions[i].extensionName, "VK_NV_acquire_winrt_display") ||
-                0 == strcmp(deviceExtensions[i].extensionName, "VK_NV_cuda_kernel_launch") ||
-                0 == strcmp(deviceExtensions[i].extensionName, "VK_EXT_provoking_vertex")) {
-                continue;
-            }
-
-            if (!hasKHRBufferDeviceAddress ||
-                0 != strcmp(deviceExtensions[i].extensionName, "VK_EXT_buffer_device_address")) {
-                deviceExtensionNames.push_back(deviceExtensions[i].extensionName);
-            }
-        }
+    for (int i = 0; i < deviceExtensions.size(); ++i) {
+        deviceExtensionNames.push_back(deviceExtensions[i].extensionName);
     }
 
     extensions->init(getProc, inst, physDev,
-                     (uint32_t) instanceExtensionNames.count(),
+                     (uint32_t) instanceExtensionNames.size(),
                      instanceExtensionNames.begin(),
-                     (uint32_t) deviceExtensionNames.count(),
+                     (uint32_t) deviceExtensionNames.size(),
                      deviceExtensionNames.begin());
 
     memset(features, 0, sizeof(VkPhysicalDeviceFeatures2));
@@ -821,9 +814,9 @@ bool CreateVkBackendContext(PFN_vkGetInstanceProcAddr getInstProc,
         0,                                           // VkDeviceCreateFlags
         queueInfoCount,                              // queueCreateInfoCount
         queueInfo,                                   // pQueueCreateInfos
-        (uint32_t) deviceLayerNames.count(),         // layerCount
+        (uint32_t) deviceLayerNames.size(),          // layerCount
         deviceLayerNames.begin(),                    // ppEnabledLayerNames
-        (uint32_t) deviceExtensionNames.count(),     // extensionCount
+        (uint32_t) deviceExtensionNames.size(),      // extensionCount
         deviceExtensionNames.begin(),                // ppEnabledExtensionNames
         pointerToFeatures ? nullptr : deviceFeatures // ppEnabledFeatures
     };
@@ -857,6 +850,13 @@ bool CreateVkBackendContext(PFN_vkGetInstanceProcAddr getInstProc,
         grVkGetDeviceQueue(device, graphicsQueueIndex, 0, &queue);
     }
 
+    skgpu::VulkanInterface interface = skgpu::VulkanInterface(
+            getProc, inst, device, instanceVersion, physDeviceVersion, extensions);
+    SkASSERT(interface.validate(instanceVersion, physDeviceVersion, extensions));
+
+    sk_sp<skgpu::VulkanMemoryAllocator> memoryAllocator = VkTestMemoryAllocator::Make(
+            inst, physDev, device, physDeviceVersion, extensions, &interface);
+
     ctx->fInstance = inst;
     ctx->fPhysicalDevice = physDev;
     ctx->fDevice = device;
@@ -866,7 +866,8 @@ bool CreateVkBackendContext(PFN_vkGetInstanceProcAddr getInstProc,
     ctx->fVkExtensions = extensions;
     ctx->fDeviceFeatures2 = features;
     ctx->fGetProc = getProc;
-    ctx->fProtectedContext = isProtected ? skgpu::Protected::kYes : skgpu::Protected::kNo;
+    ctx->fProtectedContext = skgpu::Protected(isProtected);
+    ctx->fMemoryAllocator = memoryAllocator;
 
     return true;
 }

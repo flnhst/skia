@@ -8,15 +8,27 @@
 #ifndef GrTextureProxy_DEFINED
 #define GrTextureProxy_DEFINED
 
-#include "include/gpu/GrBackendSurface.h"
-#include "src/gpu/ganesh/GrSamplerState.h"
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkTypes.h"
+#include "include/gpu/GpuTypes.h"
+#include "include/private/base/SkDebug.h"
+#include "include/private/gpu/ganesh/GrTypesPriv.h"
+#include "src/gpu/ResourceKey.h"
+#include "src/gpu/ganesh/GrSurface.h"
 #include "src/gpu/ganesh/GrSurfaceProxy.h"
+#include "src/gpu/ganesh/GrSurfaceProxyPriv.h"
 
-class GrCaps;
+#include <cstddef>
+#include <memory>
+#include <string_view>
+
+class GrBackendFormat;
 class GrDeferredProxyUploader;
 class GrProxyProvider;
 class GrResourceProvider;
 class GrTextureProxyPriv;
+enum class SkBackingFit;
+struct SkISize;
 
 // This class delays the acquisition of textures until they are actually required
 class GrTextureProxy : virtual public GrSurfaceProxy {
@@ -32,66 +44,27 @@ public:
     // claim to not need mips at creation time, but the instantiation happens to give us a mipped
     // target. In that case we should use that for our benefit to avoid possible copies/mip
     // generation later.
-    GrMipmapped mipmapped() const;
+    skgpu::Mipmapped mipmapped() const;
 
     bool mipmapsAreDirty() const {
-        SkASSERT((GrMipmapped::kNo == fMipmapped) ==
+        SkASSERT((skgpu::Mipmapped::kNo == fMipmapped) ==
                  (GrMipmapStatus::kNotAllocated == fMipmapStatus));
-        return GrMipmapped::kYes == fMipmapped && GrMipmapStatus::kValid != fMipmapStatus;
+        return skgpu::Mipmapped::kYes == fMipmapped && GrMipmapStatus::kValid != fMipmapStatus;
     }
-    void markMipmapsDirty(const char* reason,
-                          int flushNum = -1,
-                          bool isFlushing = false,
-                          const char* taskName = nullptr) {
-        SkASSERT(GrMipmapped::kYes == fMipmapped);
+    void markMipmapsDirty() {
+        SkASSERT(skgpu::Mipmapped::kYes == fMipmapped);
         fMipmapStatus = GrMipmapStatus::kDirty;
-        SkDEBUGCODE(fMipmapDirtyReason = reason;)
-        SkDEBUGCODE(fMipmapDirtyFlushNum = flushNum;)
-        SkDEBUGCODE(fMipmapDirtyWasFlushing = isFlushing;)
-        SkDEBUGCODE(fMipmapDirtyTaskName = taskName;)
     }
     void markMipmapsClean() {
-        SkASSERT(GrMipmapped::kYes == fMipmapped);
+        SkASSERT(skgpu::Mipmapped::kYes == fMipmapped);
         fMipmapStatus = GrMipmapStatus::kValid;
     }
 
-    // Returns the GrMipmapped value of the proxy from creation time regardless of whether it has
+    // Returns the skgpu::Mipmapped value of the proxy from creation time regardless of whether it has
     // been instantiated or not.
-    GrMipmapped proxyMipmapped() const { return fMipmapped; }
+    skgpu::Mipmapped proxyMipmapped() const { return fMipmapped; }
 
-#ifdef SK_DEBUG
-    // TODO: Added to verify that task order for mipmaps and rendering is correct
-    // Could be removed once verified.
-    bool slatedForMipmapRegen() const { return fSlatedForMipmapRegen; }
-    void needsMipmapRegen(uint32_t flushNum) {
-        fSlatedForMipmapRegen = true;
-        fSlatedForMipmapRegenFlushNum = flushNum;
-        ++fSlatedForMipmapRegenCount;
-    }
-    void mipmapsRegenerated() { fSlatedForMipmapRegen = false; }
-    SkString mipmapDirtyReport() const {
-        SkString report;
-        report.printf("proxy status = %d, slated: %d, #times slated %d, most recently in flush %d",
-                       this->mipmapsAreDirty(),
-                       this->slatedForMipmapRegen(),
-                       fSlatedForMipmapRegenCount,
-                       fSlatedForMipmapRegenFlushNum);
-        if (fMipmapStatus == GrMipmapStatus::kDirty) {
-            report.appendf(" Proxy dirtied by \"%s\"", fMipmapDirtyReason);
-            if (fMipmapDirtyTaskName) {
-                report.appendf(", task \"%s\",", fMipmapDirtyTaskName);
-            }
-            if (fMipmapDirtyFlushNum >= 0) {
-                report.appendf(" during flush %d, was flushing: %d",
-                               fMipmapDirtyFlushNum,
-                               fMipmapDirtyWasFlushing);
-            }
-        }
-        return report;
-    }
-#endif
-
-    GrTextureType textureType() const { return this->backendFormat().textureType(); }
+    GrTextureType textureType() const;
 
     /** If true then the texture does not support MIP maps and only supports clamp wrap mode. */
     bool hasRestrictedSampling() const {
@@ -150,11 +123,11 @@ protected:
     // Deferred version - no data.
     GrTextureProxy(const GrBackendFormat&,
                    SkISize,
-                   GrMipmapped,
+                   skgpu::Mipmapped,
                    GrMipmapStatus,
                    SkBackingFit,
-                   SkBudgeted,
-                   GrProtected,
+                   skgpu::Budgeted,
+                   skgpu::Protected,
                    GrInternalSurfaceFlags,
                    UseAllocator,
                    GrDDLProvider creatingProvider,
@@ -173,11 +146,11 @@ protected:
     GrTextureProxy(LazyInstantiateCallback&&,
                    const GrBackendFormat&,
                    SkISize,
-                   GrMipmapped,
+                   skgpu::Mipmapped,
                    GrMipmapStatus,
                    SkBackingFit,
-                   SkBudgeted,
-                   GrProtected,
+                   skgpu::Budgeted,
+                   skgpu::Protected,
                    GrInternalSurfaceFlags,
                    UseAllocator,
                    GrDDLProvider creatingProvider,
@@ -206,7 +179,7 @@ private:
     // that particular class don't require it. Changing the size of this object can move the start
     // address of other types, leading to this problem.
 
-    GrMipmapped      fMipmapped;
+    skgpu::Mipmapped fMipmapped;
 
     // This tracks the mipmap status at the proxy level and is thus somewhat distinct from the
     // backing GrTexture's mipmap status. In particular, this status is used to determine when
@@ -219,18 +192,6 @@ private:
     // NOTE: fMipmapStatus may no longer be equal to fInitialMipmapStatus by the time the texture
     // is instantiated, since it tracks mipmaps in the time frame in which the DAG is being built.
     SkDEBUGCODE(const GrMipmapStatus fInitialMipmapStatus;)
-
-    // TODO: Tracking to see if mipmap regen occurs in the correct task order
-    // Could be removed once verified.
-#if defined(SK_DEBUG)
-    bool        fSlatedForMipmapRegen          = false;
-    uint32_t    fSlatedForMipmapRegenFlushNum  = 0;
-    int         fSlatedForMipmapRegenCount     = 0;
-    const char* fMipmapDirtyReason             = "";
-    int         fMipmapDirtyFlushNum           = -1;
-    bool        fMipmapDirtyWasFlushing        = false;
-    const char* fMipmapDirtyTaskName           = nullptr;
-#endif
 
     bool             fSyncTargetKey = true;  // Should target's unique key be sync'ed with ours.
 

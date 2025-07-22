@@ -6,6 +6,7 @@
  */
 
 #include "include/codec/SkCodec.h"
+#include "include/codec/SkEncodedImageFormat.h"
 #include "include/core/SkAlphaType.h"
 #include "include/core/SkBitmap.h"
 #include "include/core/SkCanvas.h"
@@ -14,9 +15,7 @@
 #include "include/core/SkColorType.h"
 #include "include/core/SkData.h"
 #include "include/core/SkDataTable.h"
-#include "include/core/SkEncodedImageFormat.h"
 #include "include/core/SkImage.h"
-#include "include/core/SkImageEncoder.h"
 #include "include/core/SkImageInfo.h"
 #include "include/core/SkPixmap.h"
 #include "include/core/SkRefCnt.h"
@@ -27,10 +26,13 @@
 #include "include/encode/SkJpegEncoder.h"
 #include "include/encode/SkPngEncoder.h"
 #include "include/encode/SkWebpEncoder.h"
-#include "include/private/SkImageInfoPriv.h"
-#include "include/private/SkMalloc.h"
+#include "include/private/base/SkAssert.h"
+#include "include/private/base/SkMalloc.h"
+#include "include/private/base/SkTemplates.h"
+#include "modules/skcms/src/skcms_public.h"
+#include "src/core/SkImageInfoPriv.h"
 #include "tests/Test.h"
-#include "tools/Resources.h"
+#include "tools/DecodeUtils.h"
 
 #include <png.h>
 #include <webp/decode.h>
@@ -67,7 +69,7 @@ static std::unique_ptr<SkEncoder> make(SkEncodedImageFormat format, SkWStream* d
 
 static void test_encode(skiatest::Reporter* r, SkEncodedImageFormat format) {
     SkBitmap bitmap;
-    bool success = GetResourceAsBitmap("images/mandrill_128.png", &bitmap);
+    bool success = ToolUtils::GetResourceAsBitmap("images/mandrill_128.png", &bitmap);
     if (!success) {
         return;
     }
@@ -150,8 +152,196 @@ static inline bool almost_equals(const SkBitmap& a, const SkBitmap& b, int toler
     return true;
 }
 
+void test_png_encoding_roundtrip_from_specific_source_format(skiatest::Reporter* r,
+                                                             SkColorType colorType,
+                                                             SkAlphaType alphaType,
+                                                             int tolerance) {
+    ///////////////////////////////////////////////////
+    // Decode the test image into `originalBitmapRgba8`
+    // (RGBA8, as the name implies).
+    SkBitmap originalBitmapRgba8;
+    {
+        const char* resource = (kOpaque_SkAlphaType == alphaType) ? "images/color_wheel.jpg"
+                                                                  : "images/color_wheel.png";
+        sk_sp<SkData> data = GetResourceAsData(resource);
+        if (!data) {
+            return;
+        }
+        std::unique_ptr<SkCodec> codec = SkCodec::MakeFromData(data);
+        REPORTER_ASSERT(r, !!codec);
+        if (!codec) {
+            return;
+        }
+        SkImageInfo dstInfo = codec->getInfo().makeColorType(kRGBA_8888_SkColorType);
+        originalBitmapRgba8.allocPixels(dstInfo);
+        SkCodec::Result result = codec->getPixels(
+                dstInfo, originalBitmapRgba8.getPixels(), originalBitmapRgba8.rowBytes());
+        REPORTER_ASSERT(r,
+                        result == SkCodec::kSuccess,
+                        "result=%s, color=%d, alpha=%d",
+                        SkCodec::ResultToString(result),
+                        static_cast<int>(colorType),
+                        static_cast<int>(alphaType));
+        if (result != SkCodec::kSuccess) {
+            return;
+        }
+    }
+
+    //////////////////////////////////////////////////////////////////
+    // Transform `originalBitmapRgba8` into `originalBitmap` (into the
+    // `colorType` / `alphaType` that this test cares about).
+    SkBitmap originalBitmap;
+    {
+        SkImageInfo dstInfo =
+                originalBitmapRgba8.info().makeColorType(colorType).makeAlphaType(alphaType);
+        originalBitmap.allocPixels(dstInfo);
+
+        skcms_PixelFormat dstFormat;
+        switch (colorType) {
+            case kRGBA_8888_SkColorType:
+                dstFormat = skcms_PixelFormat_RGBA_8888;
+                break;
+            case kBGRA_8888_SkColorType:
+                dstFormat = skcms_PixelFormat_BGRA_8888;
+                break;
+            case kRGBA_F16_SkColorType:
+                dstFormat = skcms_PixelFormat_RGBA_hhhh;
+                break;
+            case kRGBA_F32_SkColorType:
+                dstFormat = skcms_PixelFormat_RGBA_ffff;
+                break;
+            default:
+                SkUNREACHABLE;
+        }
+
+        auto to_skcms_alpha = [](SkAlphaType alpha) -> skcms_AlphaFormat {
+            switch (alpha) {
+                case kOpaque_SkAlphaType:
+                    return skcms_AlphaFormat_Opaque;
+                case kPremul_SkAlphaType:
+                    return skcms_AlphaFormat_PremulAsEncoded;
+                case kUnpremul_SkAlphaType:
+                    return skcms_AlphaFormat_Unpremul;
+                    break;
+                case kUnknown_SkAlphaType:
+                    SkUNREACHABLE;
+            }
+            SkUNREACHABLE;
+        };
+        skcms_AlphaFormat srcAlpha = to_skcms_alpha(originalBitmapRgba8.alphaType());
+        skcms_AlphaFormat dstAlpha = to_skcms_alpha(alphaType);
+
+        size_t npixels = originalBitmapRgba8.width() * originalBitmapRgba8.height();
+        bool success = skcms_Transform(originalBitmapRgba8.getAddr(0, 0),
+                                       skcms_PixelFormat_RGBA_8888,
+                                       srcAlpha,
+                                       nullptr,
+                                       originalBitmap.getAddr(0, 0),
+                                       dstFormat,
+                                       dstAlpha,
+                                       nullptr,
+                                       npixels);
+        REPORTER_ASSERT(r, success);
+        if (!success) {
+            return;
+        }
+    }
+
+    /////////////////////////////////////////////
+    // Encode `originalBitmap` into `encodedPng`.
+    sk_sp<SkData> encodedPng;
+    {
+        SkPixmap src;
+        bool success = originalBitmap.peekPixels(&src);
+        REPORTER_ASSERT(r, success);
+        if (!success) {
+            return;
+        }
+        SkDynamicMemoryWStream buf;
+        success = SkPngEncoder::Encode(&buf, src, SkPngEncoder::Options());
+        REPORTER_ASSERT(r, success);
+        if (!success) {
+            return;
+        }
+        encodedPng = buf.detachAsData();
+    }
+
+    /////////////////////////////////////////////////////
+    // Decode `encodedPng` into `roundtripBitmap` (RGBA8).
+    SkBitmap roundtripBitmap;
+    {
+        std::unique_ptr<SkCodec> codec = SkCodec::MakeFromData(encodedPng);
+        REPORTER_ASSERT(r, !!codec);
+        if (!codec) {
+            return;
+        }
+        SkImageInfo dstInfo = codec->getInfo().makeColorType(kRGBA_8888_SkColorType);
+        roundtripBitmap.allocPixels(dstInfo);
+        SkCodec::Result result =
+                codec->getPixels(dstInfo, roundtripBitmap.getPixels(), roundtripBitmap.rowBytes());
+        REPORTER_ASSERT(r,
+                        result == SkCodec::kSuccess,
+                        "result=%s, color=%d, alpha=%d",
+                        SkCodec::ResultToString(result),
+                        static_cast<int>(colorType),
+                        static_cast<int>(alphaType));
+        if (result != SkCodec::kSuccess) {
+            return;
+        }
+    }
+
+    //////////////////////////////////////////////////////////////////////////
+    // Ensure that `originalBitmap` into `roundtripBitmap` are (almost) equal.
+    // (We can't use the `almost_equals` overload which operates on `SkBitmap`s,
+    // because our bitmaps may expectedly have differente alpha types.)
+    if (originalBitmapRgba8.dimensions() != roundtripBitmap.dimensions()) {
+        REPORTER_ASSERT(r, false);
+        return;
+    }
+    for (int y = 0; y < originalBitmap.height(); y++) {
+        for (int x = 0; x < originalBitmap.width(); x++) {
+            SkColor originalColor = originalBitmap.getColor(x, y);
+            SkColor roundtripColor = roundtripBitmap.getColor(x, y);
+            SkPMColor originalPremulColor = SkPreMultiplyColor(originalColor);
+            SkPMColor roundtripPremulColor = SkPreMultiplyColor(roundtripColor);
+            bool almost_same = almost_equals(originalPremulColor, roundtripPremulColor, tolerance);
+            REPORTER_ASSERT(r,
+                            almost_same,
+                            "x=%d, y=%d, original=0x%08x, roundtrip=0x%08x, color=%d, alpha=%d",
+                            x,
+                            y,
+                            originalPremulColor,
+                            roundtripPremulColor,
+                            static_cast<int>(colorType),
+                            static_cast<int>(alphaType));
+            if (!almost_same) {
+                return;
+            }
+        }
+    }
+}
+
+DEF_TEST(Encode_png_roundtrip_for_different_source_formats, r) {
+    test_png_encoding_roundtrip_from_specific_source_format(
+            r, kN32_SkColorType, kOpaque_SkAlphaType, 0);
+    test_png_encoding_roundtrip_from_specific_source_format(
+            r, kN32_SkColorType, kUnpremul_SkAlphaType, 0);
+    test_png_encoding_roundtrip_from_specific_source_format(
+            r, kN32_SkColorType, kPremul_SkAlphaType, 0);
+
+    // PNG encoder used to narrow down `kRGBA_F16_SkColorType` from RGBA to RGB
+    // (BE16) by skipping the alpha channel via `png_set_filler`.  But this
+    // wasn't done quite right for `kRGBA_F32_SkColorType`, which motivated this
+    // test.  See the code review comments of http://review.skia.org/922676 for
+    // more details.
+    test_png_encoding_roundtrip_from_specific_source_format(
+            r, kRGBA_F16_SkColorType, kOpaque_SkAlphaType, 0);
+    test_png_encoding_roundtrip_from_specific_source_format(
+            r, kRGBA_F32_SkColorType, kOpaque_SkAlphaType, 0);
+}
+
 DEF_TEST(Encode_JPG, r) {
-    auto image = GetResourceAsImage("images/mandrill_128.png");
+    auto image = ToolUtils::GetResourceAsImage("images/mandrill_128.png");
     if (!image) {
         return;
     }
@@ -164,7 +354,7 @@ DEF_TEST(Encode_JPG, r) {
                      kRGBA_F16_SkColorType }) {
         for (auto at : { kPremul_SkAlphaType, kUnpremul_SkAlphaType, kOpaque_SkAlphaType }) {
             auto info = SkImageInfo::Make(image->width(), image->height(), ct, at);
-            auto surface = SkSurface::MakeRaster(info);
+            auto surface = SkSurfaces::Raster(info);
             auto canvas = surface->getCanvas();
             canvas->drawImage(image, 0, 0);
 
@@ -190,7 +380,7 @@ DEF_TEST(Encode_JPG, r) {
 
 DEF_TEST(Encode_JpegDownsample, r) {
     SkBitmap bitmap;
-    bool success = GetResourceAsBitmap("images/mandrill_128.png", &bitmap);
+    bool success = ToolUtils::GetResourceAsBitmap("images/mandrill_128.png", &bitmap);
     if (!success) {
         return;
     }
@@ -222,9 +412,9 @@ DEF_TEST(Encode_JpegDownsample, r) {
     REPORTER_ASSERT(r, data1->size() < data2->size());
 
     SkBitmap bm0, bm1, bm2;
-    SkImage::MakeFromEncoded(data0)->asLegacyBitmap(&bm0);
-    SkImage::MakeFromEncoded(data1)->asLegacyBitmap(&bm1);
-    SkImage::MakeFromEncoded(data2)->asLegacyBitmap(&bm2);
+    SkImages::DeferredFromEncodedData(data0)->asLegacyBitmap(&bm0);
+    SkImages::DeferredFromEncodedData(data1)->asLegacyBitmap(&bm1);
+    SkImages::DeferredFromEncodedData(data2)->asLegacyBitmap(&bm2);
     REPORTER_ASSERT(r, almost_equals(bm0, bm1, 60));
     REPORTER_ASSERT(r, almost_equals(bm1, bm2, 60));
 }
@@ -302,7 +492,7 @@ static void testPngComments(const SkPixmap& src, SkPngEncoder::Options& options,
 
 DEF_TEST(Encode_PngOptions, r) {
     SkBitmap bitmap;
-    bool success = GetResourceAsBitmap("images/mandrill_128.png", &bitmap);
+    bool success = ToolUtils::GetResourceAsBitmap("images/mandrill_128.png", &bitmap);
     if (!success) {
         return;
     }
@@ -336,9 +526,9 @@ DEF_TEST(Encode_PngOptions, r) {
     REPORTER_ASSERT(r, data1->size() < data2->size());
 
     SkBitmap bm0, bm1, bm2;
-    SkImage::MakeFromEncoded(data0)->asLegacyBitmap(&bm0);
-    SkImage::MakeFromEncoded(data1)->asLegacyBitmap(&bm1);
-    SkImage::MakeFromEncoded(data2)->asLegacyBitmap(&bm2);
+    SkImages::DeferredFromEncodedData(data0)->asLegacyBitmap(&bm0);
+    SkImages::DeferredFromEncodedData(data1)->asLegacyBitmap(&bm1);
+    SkImages::DeferredFromEncodedData(data2)->asLegacyBitmap(&bm2);
     REPORTER_ASSERT(r, almost_equals(bm0, bm1, 0));
     REPORTER_ASSERT(r, almost_equals(bm0, bm2, 0));
 }
@@ -349,8 +539,17 @@ DEF_TEST(Encode_WebpQuality, r) {
     bm.allocN32Pixels(100, 100);
     bm.eraseColor(SK_ColorBLUE);
 
-    auto dataLossy    = SkEncodeBitmap(bm, SkEncodedImageFormat::kWEBP, 99);
-    auto dataLossLess = SkEncodeBitmap(bm, SkEncodedImageFormat::kWEBP, 100);
+    SkWebpEncoder::Options opts;
+    opts.fCompression = SkWebpEncoder::Compression::kLossless;
+    SkDynamicMemoryWStream stream;
+    SkASSERT_RELEASE(SkWebpEncoder::Encode(&stream, bm.pixmap(), opts));
+    auto dataLossLess = stream.detachAsData();
+
+    opts.fCompression = SkWebpEncoder::Compression::kLossy;
+    opts.fQuality = 99;
+    stream.reset();
+    SkASSERT_RELEASE(SkWebpEncoder::Encode(&stream, bm.pixmap(), opts));
+    auto dataLossy = stream.detachAsData();
 
     enum Format {
         kMixed    = 0,
@@ -393,7 +592,7 @@ DEF_TEST(Encode_WebpQuality, r) {
 
 DEF_TEST(Encode_WebpOptions, r) {
     SkBitmap bitmap;
-    bool success = GetResourceAsBitmap("images/google_chrome.ico", &bitmap);
+    bool success = ToolUtils::GetResourceAsBitmap("images/google_chrome.ico", &bitmap);
     if (!success) {
         return;
     }
@@ -435,10 +634,10 @@ DEF_TEST(Encode_WebpOptions, r) {
     REPORTER_ASSERT(r, data2->size() > data3->size());
 
     SkBitmap bm0, bm1, bm2, bm3;
-    SkImage::MakeFromEncoded(data0)->asLegacyBitmap(&bm0);
-    SkImage::MakeFromEncoded(data1)->asLegacyBitmap(&bm1);
-    SkImage::MakeFromEncoded(data2)->asLegacyBitmap(&bm2);
-    SkImage::MakeFromEncoded(data3)->asLegacyBitmap(&bm3);
+    SkImages::DeferredFromEncodedData(data0)->asLegacyBitmap(&bm0);
+    SkImages::DeferredFromEncodedData(data1)->asLegacyBitmap(&bm1);
+    SkImages::DeferredFromEncodedData(data2)->asLegacyBitmap(&bm2);
+    SkImages::DeferredFromEncodedData(data3)->asLegacyBitmap(&bm3);
     REPORTER_ASSERT(r, almost_equals(bm0, bm1, 0));
     REPORTER_ASSERT(r, almost_equals(bm0, bm2, 90));
     REPORTER_ASSERT(r, almost_equals(bm2, bm3, 50));
@@ -529,12 +728,24 @@ DEF_TEST(Encode_Alpha, r) {
             SkBitmap bm;
             bm.allocPixels(SkImageInfo::Make(10, 10, ct, kPremul_SkAlphaType));
             sk_bzero(bm.getPixels(), bm.computeByteSize());
-            auto data = SkEncodeBitmap(bm, format, 100);
-            if (format == SkEncodedImageFormat::kPNG && ct == kAlpha_8_SkColorType) {
-                // We support encoding alpha8 to png with our own private meaning.
-                REPORTER_ASSERT(r, data != nullptr);
+            SkDynamicMemoryWStream stream;
+            bool success = false;
+            if (format == SkEncodedImageFormat::kJPEG) {
+                success = SkJpegEncoder::Encode(&stream, bm.pixmap(), {});
+            } else if (format == SkEncodedImageFormat::kPNG) {
+                success = SkPngEncoder::Encode(&stream, bm.pixmap(), {});
             } else {
-                REPORTER_ASSERT(r, data == nullptr);
+                success = SkWebpEncoder::Encode(&stream, bm.pixmap(), {});
+            }
+
+            if ((format == SkEncodedImageFormat::kJPEG || format == SkEncodedImageFormat::kPNG) &&
+                ct == kAlpha_8_SkColorType) {
+                // We support encoding alpha8 to png and jpeg with our own private meaning.
+                REPORTER_ASSERT(r, success);
+                REPORTER_ASSERT(r, stream.bytesWritten() > 0);
+            } else {
+                REPORTER_ASSERT(r, !success);
+                REPORTER_ASSERT(r, stream.bytesWritten() == 0);
             }
         }
     }

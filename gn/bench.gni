@@ -38,6 +38,7 @@ bench_sources = [
   "$_bench/CodecBenchPriv.h",
   "$_bench/ColorFilterBench.cpp",
   "$_bench/ColorPrivBench.cpp",
+  "$_bench/ColorSpaceBench.cpp",
   "$_bench/CompositingImagesBench.cpp",
   "$_bench/ControlBench.cpp",
   "$_bench/CoverageBench.cpp",
@@ -118,7 +119,6 @@ bench_sources = [
   "$_bench/SKPAnimationBench.h",
   "$_bench/SKPBench.cpp",
   "$_bench/SKPBench.h",
-  "$_bench/ScalarBench.cpp",
   "$_bench/ShaderMaskFilterBench.cpp",
   "$_bench/ShadowBench.cpp",
   "$_bench/ShapesBench.cpp",
@@ -140,6 +140,7 @@ bench_sources = [
   "$_bench/TriangulatorBench.cpp",
   "$_bench/TypefaceBench.cpp",
   "$_bench/VertBench.cpp",
+  "$_bench/WebpBlendBench.cpp",
   "$_bench/WritePixelsBench.cpp",
   "$_bench/WriterBench.cpp",
   "$_bench/gUniqueGlyphIDs.h",
@@ -150,10 +151,10 @@ graphite_bench_sources = [
   "$_bench/graphite/IntersectionTreeBench.cpp",
 ]
 
-skgpu_v1_bench_sources = [
+ganesh_bench_sources = [
   "$_bench/BulkRectBench.cpp",
   "$_bench/ClearBench.cpp",
   "$_bench/VertexColorSpaceBench.cpp",
 ]
 
-bench_sources += skgpu_v1_bench_sources
+bench_sources += ganesh_bench_sources

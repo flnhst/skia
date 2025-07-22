@@ -11,19 +11,21 @@
 
 #include "include/core/SkCanvas.h"
 #include "include/core/SkFont.h"
-#include "include/core/SkTime.h"
-#include "include/private/SkNoncopyable.h"
-#include "include/private/SkTPin.h"
+#include "include/core/SkFontMgr.h"
+#include "include/private/base/SkNoncopyable.h"
+#include "include/private/base/SkTPin.h"
 #include "modules/audioplayer/SkAudioPlayer.h"
-#include "modules/particles/include/SkParticleEffect.h"
-#include "modules/particles/include/SkParticleSerialization.h"
 #include "modules/skottie/include/Skottie.h"
 #include "modules/skottie/include/SkottieProperty.h"
+#include "modules/skottie/include/SlotManager.h"
 #include "modules/skottie/utils/SkottieUtils.h"
+#include "modules/skottie/utils/TextEditor.h"
 #include "modules/skresources/include/SkResources.h"
+#include "src/base/SkTime.h"
 #include "src/core/SkOSFile.h"
 #include "src/utils/SkOSPath.h"
 #include "tools/Resources.h"
+#include "tools/fonts/FontToolUtils.h"
 #include "tools/timer/TimeUtils.h"
 
 #include <cmath>
@@ -63,7 +65,7 @@ private:
 class AudioProviderProxy final : public skresources::ResourceProviderProxyBase {
 public:
     explicit AudioProviderProxy(sk_sp<skresources::ResourceProvider> rp)
-        : INHERITED(std::move(rp)) {}
+        : skresources::ResourceProviderProxyBase(std::move(rp)) {}
 
 private:
     sk_sp<skresources::ExternalTrackAsset> loadAudioAsset(const char path[],
@@ -77,8 +79,6 @@ private:
 
         return nullptr;
     }
-
-    using INHERITED = skresources::ResourceProviderProxyBase;
 };
 
 class Decorator : public SkNoncopyable {
@@ -86,7 +86,7 @@ public:
     virtual ~Decorator() = default;
 
     // We pass in the Matrix and have the Decorator handle using it independently
-    // This is so decorators like particle effects can keep position on screen after moving.
+    // This is so decorators can keep position on screen after moving.
     virtual void render(SkCanvas*, double, const SkMatrix) = 0;
 };
 
@@ -128,6 +128,7 @@ public:
                                                   const char resource_name[],
                                                   const char /*resource_id*/[]) const override {
         auto data = this->load(resource_path, resource_name);
+        // Viewer should have already registered the codecs necessary for MultiFrameImageAsset
         return skresources::MultiFrameImageAsset::Make(data);
     }
 
@@ -139,57 +140,33 @@ private:
     std::unordered_map<std::string, sk_sp<SkData>> fResources;
 };
 
-class ParticleMarker final : public Decorator {
-public:
-    ~ParticleMarker() override = default;
-
-    static std::unique_ptr<Decorator> MakeConfetti() { return std::make_unique<ParticleMarker>("confetti.json"); }
-    static std::unique_ptr<Decorator> MakeSine() { return std::make_unique<ParticleMarker>("sinusoidal_emitter.json"); }
-    static std::unique_ptr<Decorator> MakeSkottie() { return std::make_unique<ParticleMarker>("skottie_particle.json"); }
-
-    explicit ParticleMarker(const char* effect_file) {
-        SkParticleEffect::RegisterParticleTypes();
-        auto params = sk_sp<SkParticleEffectParams>();
-        params.reset(new SkParticleEffectParams());
-        auto effectJsonPath = SkOSPath::Join(GetResourcePath("particles").c_str(), effect_file);
-        if (auto fileData = SkData::MakeFromFileName(effectJsonPath.c_str())) {
-            skjson::DOM dom(static_cast<const char*>(fileData->data()), fileData->size());
-            SkFromJsonVisitor fromJson(dom.root());
-            params->visitFields(&fromJson);
-            auto provider = sk_make_sp<TestingResourceProvider>();
-            params->prepare(provider.get());
-        } else {
-            SkDebugf("no particle effect file found at: %s\n", effectJsonPath.c_str());
-        }
-        fEffect = sk_make_sp<SkParticleEffect>(params);
-    }
-
-    void render(SkCanvas* canvas, double t, SkMatrix transform) override {
-        if (!fStarted || t < 0.01) {
-            fStarted = true;
-            fEffect->start(t, true, { 0, 0 }, { 0, -1 }, 1, { 0, 0 }, 0,
-                              { 1, 1, 1, 1 }, 0, 0);
-            fEffect->setPosition({0,0});
-        }
-        SkPoint p = {0,0};
-        transform.mapPoints(&p, 1);
-        fEffect->setPosition(p);
-        fEffect->update(t);
-        fEffect->draw(canvas);
-    }
-private:
-    sk_sp<SkParticleEffect> fEffect;
-    bool fStarted = false;
-};
-
 static const struct DecoratorRec {
     const char* fName;
     std::unique_ptr<Decorator>(*fFactory)();
 } kDecorators[] = {
     { "Simple marker",       SimpleMarker::Make },
-    { "Confetti",            ParticleMarker::MakeConfetti },
-    { "Sine Wave",           ParticleMarker::MakeSine },
-    { "Nested Skotties",     ParticleMarker::MakeSkottie },
+};
+
+class TextTracker final : public skottie::PropertyObserver {
+public:
+    explicit TextTracker(sk_sp<PropertyObserver> delegate) : fDelegate(std::move(delegate)) {}
+
+    std::vector<std::unique_ptr<skottie::TextPropertyHandle>>& props() {
+        return fTextProps;
+    }
+
+private:
+    void onTextProperty(const char node_name[],
+                        const LazyHandle<skottie::TextPropertyHandle>& lh) override {
+        fTextProps.push_back(lh());
+
+        if (fDelegate) {
+            fDelegate->onTextProperty(node_name, lh);
+        }
+    }
+
+    const sk_sp<PropertyObserver>                             fDelegate;
+    std::vector<std::unique_ptr<skottie::TextPropertyHandle>> fTextProps;
 };
 
 } // namespace
@@ -272,12 +249,11 @@ private:
 };
 
 // Holds a pointer to a slot manager and the list of slots for the UI widget to track
-class SkottieSlide::SlotManagerWrapper {
+class SkottieSlide::SlotManagerInterface {
 public:
-    SlotManagerWrapper(sk_sp<skresources::ResourceProvider> rp, SkottieSlide* ss)
-        : fSlotManager(sk_make_sp<skottie_utils::SlotManager>())
+    SlotManagerInterface(sk_sp<skottie::SlotManager> slotManager, sk_sp<skresources::ResourceProvider> rp)
+        : fSlotManager(std::move(slotManager))
         , fResourceProvider(std::move(rp))
-        , fSkottieSlide(ss)
     {}
 
 
@@ -287,73 +263,157 @@ public:
             for (size_t i = 0; i < fColorSlots.size(); i++) {
                 auto& cSlot = fColorSlots.at(i);
                 ImGui::PushID(i);
-                ImGui::InputText("ColorSlotID", cSlot.first.data(), cSlot.first.size());
-                ImGui::ColorEdit4("Color", cSlot.second.data());
+                ImGui::Text("%s", cSlot.first.c_str());
+                if (ImGui::ColorEdit4("Color", cSlot.second.data())) {
+                    this->pushSlots();
+                }
                 ImGui::PopID();
             }
-            if(ImGui::Button("+ Color")) {
-                std::array<char, kBufferLen> s = {'\0'};
-                fColorSlots.push_back(std::make_pair(s, std::array{1.0f, 1.0f, 1.0f, 1.0f}));
+            ImGui::Text("Scalar Slots");
+            for (size_t i = 0; i < fScalarSlots.size(); i++) {
+                auto& oSlot = fScalarSlots.at(i);
+                ImGui::PushID(i);
+                ImGui::Text("%s", oSlot.first.c_str());
+                if (ImGui::InputFloat("Scalar", &(oSlot.second))) {
+                    this->pushSlots();
+                }
+                ImGui::PopID();
             }
-
+            ImGui::Text("Vec2 Slots");
+            for (size_t i = 0; i < fVec2Slots.size(); i++) {
+                auto& vSlot = fVec2Slots.at(i);
+                ImGui::PushID(i);
+                ImGui::Text("%s", vSlot.first.c_str());
+                if (ImGui::InputFloat2("x, y", &(vSlot.second.x))) {
+                    this->pushSlots();
+                }
+                ImGui::PopID();
+            }
             ImGui::Text("Text Slots");
             for (size_t i = 0; i < fTextStringSlots.size(); i++) {
                 auto& tSlot = fTextStringSlots.at(i);
                 ImGui::PushID(i);
-                ImGui::InputText("TextSlotID", tSlot.first.data(), tSlot.first.size());
-                ImGui::InputText("Text", tSlot.second.data(), tSlot.second.size());
-                ImGui::PopID();
-            }
-            if (ImGui::Button("+ Text")) {
-                std::array<char, kBufferLen> s = {'\0'};
-                std::array<char, kBufferLen> t = {'\0'};
-                fTextStringSlots.push_back(std::make_pair(s, t));
-            }
-
-            ImGui::Text("Image Slots");
-            for (size_t i = 0; i < fImageSlots.size(); i++) {
-                auto& iSlot = fImageSlots.at(i);
-                ImGui::PushID(i);
-                ImGui::InputText("ImageSlotID", iSlot.first.data(), iSlot.first.size());
-                if (ImGui::BeginCombo("Resource", iSlot.second.data())) {
-                    for (const auto& res : fResList) {
-                        if (ImGui::Selectable(res.c_str(), false)) {
-                            iSlot.second = res.c_str();
+                ImGui::Text("%s", tSlot.first.c_str());
+                if (ImGui::InputText("Text", tSlot.second.source.data(),
+                                             tSlot.second.source.size())) {
+                    this->pushSlots();
+                }
+                if (ImGui::BeginCombo("Font", tSlot.second.font.data())) {
+                    for (const auto& typeface : fTypefaceList) {
+                        if (ImGui::Selectable(typeface, false)) {
+                            tSlot.second.font = typeface;
+                            this->pushSlots();
                         }
                     }
                     ImGui::EndCombo();
                 }
                 ImGui::PopID();
             }
-            if (ImGui::Button("+ Image")) {
-                std::array<char, kBufferLen> s = {'\0'};
-                fImageSlots.push_back(std::make_pair(s, std::string()));
-            }
 
-            if (ImGui::Button("Apply Slots")) {
-                this->pushSlots();
+            ImGui::Text("Image Slots");
+            for (size_t i = 0; i < fImageSlots.size(); i++) {
+                auto& iSlot = fImageSlots.at(i);
+                ImGui::PushID(i);
+                ImGui::Text("%s", iSlot.first.c_str());
+                if (ImGui::BeginCombo("Resource", iSlot.second.data())) {
+                    for (const auto& res : fResList) {
+                        if (ImGui::Selectable(res.c_str(), false)) {
+                            iSlot.second = res.c_str();
+                            this->pushSlots();
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+                ImGui::PopID();
             }
-
         }
         ImGui::End();
     }
 
     void pushSlots() {
         for(const auto& s : fColorSlots) {
-            fSlotManager->setColorSlot(s.first.data(), SkColor4f{s.second[0], s.second[1],
-                                                       s.second[2], s.second[3]}.toSkColor());
+            fSlotManager->setColorSlot(s.first, SkColor4f{s.second[0], s.second[1],
+                                                          s.second[2], s.second[3]}.toSkColor());
+        }
+        for(const auto& s : fScalarSlots) {
+            fSlotManager->setScalarSlot(s.first, s.second);
+        }
+        for(const auto& s : fVec2Slots) {
+            fSlotManager->setVec2Slot(s.first, {s.second.x, s.second.y});
         }
         for(const auto& s : fTextStringSlots) {
-            fSlotManager->setTextStringSlot(s.first.data(), SkString(s.second.data()));
+            auto t = fSlotManager->getTextSlot(s.first);
+            t->fText = SkString(s.second.source.data());
+            t->fTypeface = ToolUtils::TestFontMgr()->matchFamilyStyle(s.second.font.c_str(),
+                                                                      SkFontStyle());
+            fSlotManager->setTextSlot(s.first, *t);
         }
         for(const auto& s : fImageSlots) {
-            auto img = fResourceProvider->loadImageAsset("images/", s.second.c_str(), nullptr);
-            if (img) {
-                fSlotManager->setImageSlot(s.first.data(), img);
+            auto image = fResourceProvider->loadImageAsset("images/", s.second.c_str(), nullptr);
+            fSlotManager->setImageSlot(s.first, image);
+        }
+    }
+
+    void initializeSlotManagerUI() {
+        prepareImageAssetList(GetResourcePath("skottie/images").c_str());
+        // only initialize if slots are unpopulated
+        if (fColorSlots.empty() && fScalarSlots.empty() && fTextStringSlots.empty()) {
+            auto slotInfos = fSlotManager->getSlotInfo();
+            for (const auto &sid : slotInfos.fColorSlotIDs) {
+                addColorSlot(sid);
+            }
+            for (const auto &sid : slotInfos.fScalarSlotIDs) {
+                addScalarSlot(sid);
+            }
+            for (const auto &sid : slotInfos.fVec2SlotIDs) {
+                addVec2Slot(sid);
+            }
+            for (const auto &sid : slotInfos.fImageSlotIDs) {
+                addImageSlot(sid);
+            }
+            for (const auto &sid : slotInfos.fTextSlotIDs) {
+                addTextSlot(sid);
             }
         }
-        auto dims = fSkottieSlide->getDimensions();
-        fSkottieSlide->load(dims.width(), dims.height());
+    }
+
+private:
+    static constexpr int kBufferLen = 256;
+
+    sk_sp<skottie::SlotManager> fSlotManager;
+    const sk_sp<skresources::ResourceProvider> fResourceProvider;
+    std::vector<SkString> fResList;
+    static constexpr std::array<const char*, 4> fTypefaceList = {"Arial",
+                                                                 "Courier New",
+                                                                 "Roboto-Regular",
+                                                                 "Georgia"};
+
+    using GuiTextBuffer = std::array<char, kBufferLen>;
+
+    void addColorSlot(SkString slotID) {
+        auto c = fSlotManager->getColorSlot(slotID);
+        SkColor4f color4f = SkColor4f::FromColor(*c);
+        fColorSlots.push_back(std::make_pair(slotID, color4f.array()));
+    }
+
+    void addScalarSlot(SkString slotID) {
+        fScalarSlots.push_back(std::make_pair(slotID, *fSlotManager->getScalarSlot(slotID)));
+    }
+
+    void addVec2Slot(SkString slotID) {
+        fVec2Slots.push_back(std::make_pair(slotID, *fSlotManager->getVec2Slot(slotID)));
+    }
+
+    void addTextSlot(SkString slotID) {
+        std::array<char, kBufferLen> textSource = {'\0'};
+        SkString s = fSlotManager->getTextSlot(slotID)->fText;
+        std::copy(s.data(), s.data() + s.size(), textSource.data());
+        TextSlotData data = {textSource, fTypefaceList[0]};
+        fTextStringSlots.push_back(std::make_pair(slotID, data));
+    }
+
+    void addImageSlot(SkString slotID) {
+        fImageSlots.push_back(std::make_pair(slotID, fResList[0].data()));
     }
 
     void prepareImageAssetList(const char* dirname) {
@@ -364,27 +424,16 @@ public:
         }
     }
 
-    sk_sp<skresources::ResourceProvider> getResourceProvider() {
-        return fSlotManager->getResourceProvider();
-    }
+    struct TextSlotData {
+        GuiTextBuffer source;
+        std::string   font;
+    };
 
-    sk_sp<skottie::PropertyObserver> getPropertyObserver() {
-        return fSlotManager->getPropertyObserver();
-    }
-private:
-    static constexpr int kBufferLen = 256;
-
-    const sk_sp<skottie_utils::SlotManager> fSlotManager;
-    const sk_sp<skresources::ResourceProvider> fResourceProvider;
-    std::vector<SkString> fResList;
-
-    SkottieSlide* fSkottieSlide;
-
-    using GuiTextBuffer = std::array<char, kBufferLen>;
-
-    std::vector<std::pair<GuiTextBuffer, std::array<float, 4>>>   fColorSlots;
-    std::vector<std::pair<GuiTextBuffer, GuiTextBuffer>>          fTextStringSlots;
-    std::vector<std::pair<GuiTextBuffer, std::string>>            fImageSlots;
+    std::vector<std::pair<SkString, std::array<float, 4>>> fColorSlots;
+    std::vector<std::pair<SkString, float>>                fScalarSlots;
+    std::vector<std::pair<SkString, SkV2>>                 fVec2Slots;
+    std::vector<std::pair<SkString, TextSlotData>>         fTextStringSlots;
+    std::vector<std::pair<SkString, std::string>>          fImageSlots;
 
 };
 
@@ -396,7 +445,7 @@ static void draw_stats_box(SkCanvas* canvas, const skottie::Animation::Builder::
     paint.setAntiAlias(true);
     paint.setColor(0xffeeeeee);
 
-    SkFont font(nullptr, kTextSize);
+    SkFont font(ToolUtils::DefaultTypeface(), kTextSize);
 
     canvas->drawRect(kR, paint);
 
@@ -427,7 +476,7 @@ SkottieSlide::SkottieSlide(const SkString& name, const SkString& path)
     fName = name;
 }
 
-void SkottieSlide::load(SkScalar w, SkScalar h) {
+void SkottieSlide::init() {
     class Logger final : public skottie::Logger {
     public:
         struct LogEntry {
@@ -469,12 +518,14 @@ void SkottieSlide::load(SkScalar w, SkScalar h) {
     }
     skottie::Animation::Builder builder(flags);
 
+    // Viewer should have already registered the codecs necessary for DataURIResourceProviderProxy
+    auto predecode = skresources::ImageDecodeStrategy::kPreDecode;
     auto resource_provider =
-        sk_make_sp<AudioProviderProxy>(
-            skresources::DataURIResourceProviderProxy::Make(
-                skresources::FileResourceProvider::Make(SkOSPath::Dirname(fPath.c_str()),
-                                                        /*predecode=*/true),
-                /*predecode=*/true));
+            sk_make_sp<AudioProviderProxy>(skresources::DataURIResourceProviderProxy::Make(
+                    skresources::FileResourceProvider::Make(SkOSPath::Dirname(fPath.c_str()),
+                                                            predecode),
+                    predecode,
+                    ToolUtils::TestFontMgr()));
 
     static constexpr char kInterceptPrefix[] = "__";
     auto precomp_interceptor =
@@ -482,27 +533,26 @@ void SkottieSlide::load(SkScalar w, SkScalar h) {
                                                                            kInterceptPrefix);
 
     fTransformTracker = sk_make_sp<TransformTracker>();
-    if (!fSlotManagerWrapper) {
-        fSlotManagerWrapper = std::make_unique<SlotManagerWrapper>(resource_provider, this);
-    }
-    fSlotManagerWrapper->prepareImageAssetList(GetResourcePath("skottie/images").c_str());
+    auto text_tracker = sk_make_sp<TextTracker>(fTransformTracker);
 
     builder.setLogger(logger)
-           .setPrecompInterceptor(std::move(precomp_interceptor));
+           .setFontManager(ToolUtils::TestFontMgr())
+           .setPrecompInterceptor(std::move(precomp_interceptor))
+           .setResourceProvider(resource_provider)
+           .setPropertyObserver(text_tracker);
 
-    if (fShowSlotManager) {
-        builder.setResourceProvider(fSlotManagerWrapper->getResourceProvider())
-               .setPropertyObserver(fSlotManagerWrapper->getPropertyObserver());
-    } else {
-        builder.setResourceProvider(std::move(resource_provider))
-               .setPropertyObserver(fTransformTracker);
-    }
     fAnimation = builder.makeFromFile(fPath.c_str());
     fAnimationStats = builder.getStats();
-    fWinSize        = SkSize::Make(w, h);
     fTimeBase       = 0; // force a time reset
 
     if (fAnimation) {
+        if (!fSlotManagerInterface) {
+            fSlotManagerInterface =
+                std::make_unique<SlotManagerInterface>(builder.getSlotManager(), resource_provider);
+        }
+
+        fSlotManagerInterface->initializeSlotManagerUI();
+
         fAnimation->seek(0);
         fFrameTimes.resize(SkScalarCeilToInt(fAnimation->duration() * fAnimation->fps()));
         SkDebugf("Loaded Bodymovin animation v: %s, size: [%f %f]\n",
@@ -510,9 +560,23 @@ void SkottieSlide::load(SkScalar w, SkScalar h) {
                  fAnimation->size().width(),
                  fAnimation->size().height());
         logger->report();
+
+        if (auto text_props = std::move(text_tracker->props()); !text_props.empty()) {
+            // Attach the editor to the first text layer, and track the rest as dependents.
+            auto editor_target = std::move(text_props[0]);
+            text_props.erase(text_props.cbegin());
+            fTextEditor = sk_make_sp<skottie_utils::TextEditor>(std::move(editor_target),
+                                                                std::move(text_props));
+            fTextEditor->setCursorWeight(1.2f);
+        }
     } else {
         SkDebugf("failed to load Bodymovin animation: %s\n", fPath.c_str());
     }
+}
+
+void SkottieSlide::load(SkScalar w, SkScalar h) {
+    fWinSize = SkSize::Make(w, h);
+    this->init();
 }
 
 void SkottieSlide::unload() {
@@ -521,11 +585,6 @@ void SkottieSlide::unload() {
 
 void SkottieSlide::resize(SkScalar w, SkScalar h) {
     fWinSize = { w, h };
-}
-
-SkISize SkottieSlide::getDimensions() const {
-    // We always scale to fill the window.
-    return fWinSize.toCeil();
 }
 
 void SkottieSlide::draw(SkCanvas* canvas) {
@@ -574,7 +633,7 @@ void SkottieSlide::draw(SkCanvas* canvas) {
         if (fShowSlotManager) {
             // not able to track layers with a PropertyObserver while using SM's PropertyObserver
             fShowTrackerUI = false;
-            fSlotManagerWrapper->renderUI();
+            fSlotManagerInterface->renderUI();
         }
         if (fShowTrackerUI) {
             fTransformTracker->renderUI();
@@ -616,6 +675,10 @@ bool SkottieSlide::animate(double nanos) {
 }
 
 bool SkottieSlide::onChar(SkUnichar c) {
+    if (fTextEditor && fTextEditor->onCharInput(c)) {
+        return true;
+    }
+
     switch (c) {
     case 'I':
         fShowAnimationStats = !fShowAnimationStats;
@@ -630,12 +693,21 @@ bool SkottieSlide::onChar(SkUnichar c) {
     case 'M':
         fShowSlotManager = !fShowSlotManager;
         return true;
+    case 'E':
+        if (fTextEditor) {
+            fTextEditor->toggleEnabled();
+        }
+        return true;
     }
 
-    return INHERITED::onChar(c);
+    return Slide::onChar(c);
 }
 
-bool SkottieSlide::onMouse(SkScalar x, SkScalar y, skui::InputState state, skui::ModifierKey) {
+bool SkottieSlide::onMouse(SkScalar x, SkScalar y, skui::InputState state, skui::ModifierKey mod) {
+    if (fTextEditor && fTextEditor->onMouseInput(x, y, state, mod)) {
+        return true;
+    }
+
     switch (state) {
     case skui::InputState::kUp:
         fShowAnimationInval = !fShowAnimationInval;

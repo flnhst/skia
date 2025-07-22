@@ -16,11 +16,12 @@
 #include "include/core/SkColorSpace.h"
 #include "include/core/SkRefCnt.h"
 #include "include/core/SkString.h"
-#include "include/gpu/GrDirectContext.h"
-#include "include/gpu/GrTypes.h"
-#include "include/private/SkHalf.h"
-#include "include/private/SkTDArray.h"
+#include "include/gpu/GpuTypes.h"
+#include "include/gpu/ganesh/GrDirectContext.h"
+#include "include/gpu/ganesh/GrTypes.h"
+#include "include/private/base/SkTDArray.h"
 #include "include/private/gpu/ganesh/GrTypesPriv.h"
+#include "src/base/SkHalf.h"
 #include "src/gpu/ganesh/GrDirectContextPriv.h"
 #include "src/gpu/ganesh/GrImageInfo.h"
 #include "src/gpu/ganesh/GrPixmap.h"
@@ -30,7 +31,7 @@
 #include "tests/Test.h"
 #include "tools/gpu/ProxyUtils.h"
 
-#include <string.h>
+#include <cstring>
 #include <initializer_list>
 #include <memory>
 #include <utility>

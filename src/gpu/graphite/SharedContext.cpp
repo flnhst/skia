@@ -12,21 +12,34 @@
 #include "src/gpu/graphite/Caps.h"
 #include "src/gpu/graphite/CommandBuffer.h"
 #include "src/gpu/graphite/GpuWorkSubmission.h"
+#include "src/gpu/graphite/RendererProvider.h"
 #include "src/gpu/graphite/ResourceProvider.h"
 
 namespace skgpu::graphite {
 
+static Layout get_binding_layout(const Caps* caps) {
+    ResourceBindingRequirements reqs = caps->resourceBindingRequirements();
+    return caps->storageBufferSupport() ? reqs.fStorageBufferLayout : reqs.fUniformBufferLayout;
+}
+
 SharedContext::SharedContext(std::unique_ptr<const Caps> caps, BackendApi backend)
     : fCaps(std::move(caps))
     , fBackend(backend)
-    , fProtected(Protected::kNo)
     , fGlobalCache()
-    , fShaderDictionary() {}
+    , fShaderDictionary(get_binding_layout(fCaps.get())) {}
 
 SharedContext::~SharedContext() {
     // TODO: add disconnect?
 
     // TODO: destroyResources instead?
+}
+
+Protected SharedContext::isProtected() const { return Protected(fCaps->protectedSupport()); }
+
+void SharedContext::setRendererProvider(std::unique_ptr<RendererProvider> rendererProvider) {
+    // Should only be called once and be non-null
+    SkASSERT(rendererProvider && !fRendererProvider);
+    fRendererProvider = std::move(rendererProvider);
 }
 
 } // namespace skgpu::graphite

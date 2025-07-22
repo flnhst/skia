@@ -7,13 +7,26 @@
 
 #include "src/gpu/ganesh/vk/GrVkBuffer.h"
 
-#include "include/gpu/GrDirectContext.h"
+#include "include/gpu/GpuTypes.h"
+#include "include/gpu/ganesh/GrDirectContext.h"
+#include "include/gpu/vk/VulkanMemoryAllocator.h"
+#include "include/private/base/SkAlign.h"
+#include "include/private/base/SkAssert.h"
+#include "include/private/base/SkDebug.h"
+#include "include/private/base/SkTemplates.h"
 #include "src/gpu/ganesh/GrDirectContextPriv.h"
 #include "src/gpu/ganesh/GrResourceProvider.h"
+#include "src/gpu/ganesh/vk/GrVkCaps.h"
 #include "src/gpu/ganesh/vk/GrVkDescriptorSet.h"
 #include "src/gpu/ganesh/vk/GrVkGpu.h"
-#include "src/gpu/ganesh/vk/GrVkMemory.h"
+#include "src/gpu/ganesh/vk/GrVkResourceProvider.h"
+#include "src/gpu/ganesh/vk/GrVkUniformHandler.h"
 #include "src/gpu/ganesh/vk/GrVkUtil.h"
+#include "src/gpu/vk/VulkanMemory.h"
+
+#include <cstring>
+#include <functional>
+#include <utility>
 
 #define VK_CALL(GPU, X) GR_VK_CALL(GPU->vkInterface(), X)
 
@@ -32,7 +45,7 @@ GrVkBuffer::GrVkBuffer(GrVkGpu* gpu,
     // We always require dynamic buffers to be mappable
     SkASSERT(accessPattern != kDynamic_GrAccessPattern || this->isVkMappable());
     SkASSERT(bufferType != GrGpuBufferType::kUniform || uniformDescriptorSet);
-    this->registerWithCache(SkBudgeted::kYes);
+    this->registerWithCache(skgpu::Budgeted::kYes);
 }
 
 static const GrVkDescriptorSet* make_uniform_desc_set(GrVkGpu* gpu, VkBuffer buffer, size_t size) {
@@ -72,49 +85,55 @@ sk_sp<GrVkBuffer> GrVkBuffer::Make(GrVkGpu* gpu,
     VkBuffer buffer;
     skgpu::VulkanAlloc alloc;
 
-    // The only time we don't require mappable buffers is when we have a static access pattern and
-    // we're on a device where gpu only memory has faster reads on the gpu than memory that is also
-    // mappable on the cpu. Protected memory always uses mappable buffers.
-    bool requiresMappable = gpu->protectedContext() ||
-                            accessPattern == kDynamic_GrAccessPattern ||
-                            accessPattern == kStream_GrAccessPattern ||
-                            !gpu->vkCaps().gpuOnlyBuffersMorePerformant();
+    bool isProtected = gpu->protectedContext() &&
+                       accessPattern == kStatic_GrAccessPattern;
+
+    // Protected memory _never_ uses mappable buffers.
+    // Otherwise, the only time we don't require mappable buffers is when we have a static
+    // access pattern and we're on a device where gpu only memory has faster reads on the gpu than
+    // memory that is also mappable on the cpu.
+    bool requiresMappable = !isProtected &&
+                            (accessPattern == kDynamic_GrAccessPattern ||
+                             accessPattern == kStream_GrAccessPattern ||
+                             !gpu->vkCaps().gpuOnlyBuffersMorePerformant());
 
     using BufferUsage = skgpu::VulkanMemoryAllocator::BufferUsage;
     BufferUsage allocUsage;
+
+    if (bufferType == GrGpuBufferType::kXferCpuToGpu) {
+        allocUsage = BufferUsage::kTransfersFromCpuToGpu;
+    } else if (bufferType == GrGpuBufferType::kXferGpuToCpu) {
+        allocUsage = BufferUsage::kTransfersFromGpuToCpu;
+    } else {
+        allocUsage = requiresMappable ? BufferUsage::kCpuWritesGpuReads : BufferUsage::kGpuOnly;
+    }
 
     // create the buffer object
     VkBufferCreateInfo bufInfo;
     memset(&bufInfo, 0, sizeof(VkBufferCreateInfo));
     bufInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    bufInfo.flags = 0;
+    bufInfo.flags = isProtected ? VK_BUFFER_CREATE_PROTECTED_BIT : 0;
     bufInfo.size = size;
     // To support SkMesh buffer updates we make Vertex and Index buffers capable of being transfer
     // dsts.
     switch (bufferType) {
         case GrGpuBufferType::kVertex:
             bufInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-            allocUsage = requiresMappable ? BufferUsage::kCpuWritesGpuReads : BufferUsage::kGpuOnly;
             break;
         case GrGpuBufferType::kIndex:
             bufInfo.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-            allocUsage = requiresMappable ? BufferUsage::kCpuWritesGpuReads : BufferUsage::kGpuOnly;
             break;
         case GrGpuBufferType::kDrawIndirect:
             bufInfo.usage = VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
-            allocUsage = requiresMappable ? BufferUsage::kCpuWritesGpuReads : BufferUsage::kGpuOnly;
             break;
         case GrGpuBufferType::kUniform:
             bufInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-            allocUsage = BufferUsage::kCpuWritesGpuReads;
             break;
         case GrGpuBufferType::kXferCpuToGpu:
             bufInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-            allocUsage = BufferUsage::kTransfersFromCpuToGpu;
             break;
         case GrGpuBufferType::kXferGpuToCpu:
             bufInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-            allocUsage = BufferUsage::kTransfersFromGpuToCpu;
             break;
     }
     // We may not always get a mappable buffer for non dynamic access buffers. Thus we set the
@@ -135,7 +154,32 @@ sk_sp<GrVkBuffer> GrVkBuffer::Make(GrVkGpu* gpu,
         return nullptr;
     }
 
-    if (!GrVkMemory::AllocAndBindBufferMemory(gpu, buffer, allocUsage, &alloc)) {
+    bool shouldPersistentlyMapCpuToGpu = gpu->vkCaps().shouldPersistentlyMapCpuToGpuBuffers();
+    auto checkResult = [gpu, allocUsage, shouldPersistentlyMapCpuToGpu](VkResult result) {
+        GR_VK_LOG_IF_NOT_SUCCESS(gpu, result, "skgpu::VulkanMemory::AllocBufferMemory "
+                                 "(allocUsage:%d, shouldPersistentlyMapCpuToGpu:%d)",
+                                 (int)allocUsage, (int)shouldPersistentlyMapCpuToGpu);
+        return gpu->checkVkResult(result);
+    };
+    auto allocator = gpu->memoryAllocator();
+    if (!skgpu::VulkanMemory::AllocBufferMemory(allocator,
+                                                buffer,
+                                                skgpu::Protected(isProtected),
+                                                allocUsage,
+                                                shouldPersistentlyMapCpuToGpu,
+                                                checkResult,
+                                                &alloc)) {
+        VK_CALL(gpu, DestroyBuffer(gpu->device(), buffer, nullptr));
+        return nullptr;
+    }
+
+    // Bind buffer
+    GR_VK_CALL_RESULT(gpu, err, BindBufferMemory(gpu->device(),
+                                                 buffer,
+                                                 alloc.fMemory,
+                                                 alloc.fOffset));
+    if (err) {
+        skgpu::VulkanMemory::FreeBufferMemory(allocator, alloc);
         VK_CALL(gpu, DestroyBuffer(gpu->device(), buffer, nullptr));
         return nullptr;
     }
@@ -146,7 +190,7 @@ sk_sp<GrVkBuffer> GrVkBuffer::Make(GrVkGpu* gpu,
         uniformDescSet = make_uniform_desc_set(gpu, buffer, size);
         if (!uniformDescSet) {
             VK_CALL(gpu, DestroyBuffer(gpu->device(), buffer, nullptr));
-            GrVkMemory::FreeBufferMemory(gpu, alloc);
+            skgpu::VulkanMemory::FreeBufferMemory(allocator, alloc);
             return nullptr;
         }
     }
@@ -166,11 +210,28 @@ void GrVkBuffer::vkMap(size_t readOffset, size_t readSize) {
         SkASSERT(this->internalHasNoCommandBufferUsages());
         SkASSERT(fAlloc.fSize > 0);
         SkASSERT(fAlloc.fSize >= readOffset + readSize);
-        fMapPtr = GrVkMemory::MapAlloc(this->getVkGpu(), fAlloc);
+
+        GrVkGpu* gpu = this->getVkGpu();
+        auto checkResult_mapAlloc = [gpu](VkResult result) {
+            GR_VK_LOG_IF_NOT_SUCCESS(gpu, result, "skgpu::VulkanMemory::MapAlloc");
+            return gpu->checkVkResult(result);
+        };
+        auto allocator = gpu->memoryAllocator();
+        fMapPtr = skgpu::VulkanMemory::MapAlloc(allocator, fAlloc, checkResult_mapAlloc);
         if (fMapPtr && readSize != 0) {
+            auto checkResult_invalidateMapAlloc = [gpu, readOffset, readSize](VkResult result) {
+                GR_VK_LOG_IF_NOT_SUCCESS(gpu, result, "skgpu::VulkanMemory::InvalidateMappedAlloc "
+                                         "(readOffset:%zu, readSize:%zu)",
+                                         readOffset, readSize);
+                return gpu->checkVkResult(result);
+            };
             // "Invalidate" here means make device writes visible to the host. That is, it makes
             // sure any GPU writes are finished in the range we might read from.
-            GrVkMemory::InvalidateMappedAlloc(this->getVkGpu(), fAlloc, readOffset, readSize);
+            skgpu::VulkanMemory::InvalidateMappedAlloc(allocator,
+                                                       fAlloc,
+                                                       readOffset,
+                                                       readSize,
+                                                       checkResult_invalidateMapAlloc);
         }
     }
 }
@@ -182,17 +243,21 @@ void GrVkBuffer::vkUnmap(size_t flushOffset, size_t flushSize) {
     SkASSERT(fAlloc.fSize >= flushOffset + flushSize);
 
     GrVkGpu* gpu = this->getVkGpu();
-    GrVkMemory::FlushMappedAlloc(gpu, fAlloc, flushOffset, flushSize);
-    GrVkMemory::UnmapAlloc(gpu, fAlloc);
+    auto checkResult = [gpu, flushOffset, flushSize](VkResult result) {
+        GR_VK_LOG_IF_NOT_SUCCESS(gpu, result, "skgpu::VulkanMemory::FlushMappedAlloc "
+                                 "(flushOffset:%zu, flushSize:%zu)",
+                                 flushOffset, flushSize);
+        return gpu->checkVkResult(result);
+    };
+    auto allocator = this->getVkGpu()->memoryAllocator();
+    skgpu::VulkanMemory::FlushMappedAlloc(allocator, fAlloc, flushOffset, flushSize, checkResult);
+    skgpu::VulkanMemory::UnmapAlloc(allocator, fAlloc);
 }
 
 void GrVkBuffer::copyCpuDataToGpuBuffer(const void* src, size_t offset, size_t size) {
     SkASSERT(src);
 
     GrVkGpu* gpu = this->getVkGpu();
-
-    // We should never call this method in protected contexts.
-    SkASSERT(!gpu->protectedContext());
 
     // The vulkan api restricts the use of vkCmdUpdateBuffer to updates that are less than or equal
     // to 65536 bytes and a size and offset that are both 4 byte aligned.
@@ -260,7 +325,7 @@ void GrVkBuffer::vkRelease() {
     VK_CALL(this->getVkGpu(), DestroyBuffer(this->getVkGpu()->device(), fBuffer, nullptr));
     fBuffer = VK_NULL_HANDLE;
 
-    GrVkMemory::FreeBufferMemory(this->getVkGpu(), fAlloc);
+    skgpu::VulkanMemory::FreeBufferMemory(this->getVkGpu()->memoryAllocator(), fAlloc);
     fAlloc.fMemory = VK_NULL_HANDLE;
     fAlloc.fBackendMemory = 0;
 }
@@ -311,4 +376,3 @@ const VkDescriptorSet* GrVkBuffer::uniformDescriptorSet() const {
     SkASSERT(fUniformDescriptorSet);
     return fUniformDescriptorSet->descriptorSet();
 }
-

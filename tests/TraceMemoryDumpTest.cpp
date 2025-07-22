@@ -11,17 +11,18 @@
 #include "include/core/SkSize.h"
 #include "include/core/SkString.h"
 #include "include/core/SkTraceMemoryDump.h"
-#include "include/gpu/GrDirectContext.h"
-#include "include/gpu/gl/GrGLTypes.h"
-#include "include/private/gpu/ganesh/GrGLTypesPriv.h"
+#include "include/gpu/GpuTypes.h"
+#include "include/gpu/ganesh/GrDirectContext.h"
+#include "include/gpu/ganesh/gl/GrGLTypes.h"
 #include "include/private/gpu/ganesh/GrTypesPriv.h"
 #include "src/gpu/ganesh/GrDirectContextPriv.h"
 #include "src/gpu/ganesh/gl/GrGLBuffer.h"
-#include "src/gpu/ganesh/gl/GrGLDefines_impl.h"
+#include "src/gpu/ganesh/gl/GrGLDefines.h"
 #include "src/gpu/ganesh/gl/GrGLGpu.h"
 #include "src/gpu/ganesh/gl/GrGLRenderTarget.h"
 #include "src/gpu/ganesh/gl/GrGLTexture.h"
 #include "src/gpu/ganesh/gl/GrGLTextureRenderTarget.h"
+#include "src/gpu/ganesh/gl/GrGLTypesPriv.h"
 #include "tests/CtsEnforcement.h"
 #include "tests/Test.h"
 
@@ -87,10 +88,10 @@ void ValidateMemoryDumps(skiatest::Reporter* reporter, GrDirectContext* dContext
     }
 }
 
-DEF_GANESH_TEST_FOR_GL_RENDERING_CONTEXTS(SkTraceMemoryDump_ownedGLBuffer,
-                                          reporter,
-                                          ctxInfo,
-                                          CtsEnforcement::kApiLevel_T) {
+DEF_GANESH_TEST_FOR_GL_CONTEXT(SkTraceMemoryDump_ownedGLBuffer,
+                               reporter,
+                               ctxInfo,
+                               CtsEnforcement::kApiLevel_T) {
     auto dContext = ctxInfo.directContext();
     GrGLGpu* gpu = static_cast<GrGLGpu*>(dContext->priv().getGpu());
     const size_t kMemorySize = 1024;
@@ -100,10 +101,10 @@ DEF_GANESH_TEST_FOR_GL_RENDERING_CONTEXTS(SkTraceMemoryDump_ownedGLBuffer,
     ValidateMemoryDumps(reporter, dContext, 2, kMemorySize, true /* isOwned */);
 }
 
-DEF_GANESH_TEST_FOR_GL_RENDERING_CONTEXTS(SkTraceMemoryDump_ownedGLTexture,
-                                          reporter,
-                                          ctxInfo,
-                                          CtsEnforcement::kApiLevel_T) {
+DEF_GANESH_TEST_FOR_GL_CONTEXT(SkTraceMemoryDump_ownedGLTexture,
+                               reporter,
+                               ctxInfo,
+                               CtsEnforcement::kApiLevel_T) {
     auto dContext = ctxInfo.directContext();
     GrGLGpu* gpu = static_cast<GrGLGpu*>(dContext->priv().getGpu());
 
@@ -112,19 +113,22 @@ DEF_GANESH_TEST_FOR_GL_RENDERING_CONTEXTS(SkTraceMemoryDump_ownedGLTexture,
     desc.fID = 7;  // Arbitrary, we don't actually use the texture.
     desc.fFormat = GrGLFormat::kRGBA8;
     desc.fOwnership = GrBackendObjectOwnership::kOwned;
+    desc.fIsProtected = skgpu::Protected::kNo;
     desc.fSize = SkISize::Make(64, 64);
 
-    auto texture = sk_make_sp<GrGLTexture>(
-            gpu, SkBudgeted::kNo, desc, GrMipmapStatus::kNotAllocated,
-            /*label=*/"SkTraceMemoryDump_ownedGLTexture");
+    auto texture = sk_make_sp<GrGLTexture>(gpu,
+                                           skgpu::Budgeted::kNo,
+                                           desc,
+                                           GrMipmapStatus::kNotAllocated,
+                                           /*label=*/"SkTraceMemoryDump_ownedGLTexture");
 
     ValidateMemoryDumps(reporter, dContext, 2, texture->gpuMemorySize(), true /* isOwned */);
 }
 
-DEF_GANESH_TEST_FOR_GL_RENDERING_CONTEXTS(SkTraceMemoryDump_unownedGLTexture,
-                                          reporter,
-                                          ctxInfo,
-                                          CtsEnforcement::kApiLevel_T) {
+DEF_GANESH_TEST_FOR_GL_CONTEXT(SkTraceMemoryDump_unownedGLTexture,
+                               reporter,
+                               ctxInfo,
+                               CtsEnforcement::kApiLevel_T) {
     auto dContext = ctxInfo.directContext();
     GrGLGpu* gpu = static_cast<GrGLGpu*>(dContext->priv().getGpu());
 
@@ -134,6 +138,7 @@ DEF_GANESH_TEST_FOR_GL_RENDERING_CONTEXTS(SkTraceMemoryDump_unownedGLTexture,
     desc.fFormat = GrGLFormat::kRGBA8;
     desc.fOwnership = GrBackendObjectOwnership::kBorrowed;
     desc.fSize = SkISize::Make(64, 64);
+    desc.fIsProtected = skgpu::Protected::kNo;
 
     auto params = sk_make_sp<GrGLTextureParameters>();
 
@@ -148,10 +153,10 @@ DEF_GANESH_TEST_FOR_GL_RENDERING_CONTEXTS(SkTraceMemoryDump_unownedGLTexture,
     ValidateMemoryDumps(reporter, dContext, 2, texture->gpuMemorySize(), false /* isOwned */);
 }
 
-DEF_GANESH_TEST_FOR_GL_RENDERING_CONTEXTS(SkTraceMemoryDump_ownedGLRenderTarget,
-                                          reporter,
-                                          ctxInfo,
-                                          CtsEnforcement::kApiLevel_T) {
+DEF_GANESH_TEST_FOR_GL_CONTEXT(SkTraceMemoryDump_ownedGLRenderTarget,
+                               reporter,
+                               ctxInfo,
+                               CtsEnforcement::kApiLevel_T) {
     auto dContext = ctxInfo.directContext();
     GrGLGpu* gpu = static_cast<GrGLGpu*>(dContext->priv().getGpu());
 
@@ -170,15 +175,16 @@ DEF_GANESH_TEST_FOR_GL_RENDERING_CONTEXTS(SkTraceMemoryDump_ownedGLRenderTarget,
                                                                1,
                                                                rtIDs,
                                                                0,
+                                                               skgpu::Protected::kNo,
                                                                /*label=*/{});
 
     ValidateMemoryDumps(reporter, dContext, 2, rt->gpuMemorySize(), true /* isOwned */);
 }
 
-DEF_GANESH_TEST_FOR_GL_RENDERING_CONTEXTS(SkTraceMemoryDump_unownedGLRenderTarget,
-                                          reporter,
-                                          ctxInfo,
-                                          CtsEnforcement::kApiLevel_T) {
+DEF_GANESH_TEST_FOR_GL_CONTEXT(SkTraceMemoryDump_unownedGLRenderTarget,
+                               reporter,
+                               ctxInfo,
+                               CtsEnforcement::kApiLevel_T) {
     auto dContext = ctxInfo.directContext();
     GrGLGpu* gpu = static_cast<GrGLGpu*>(dContext->priv().getGpu());
 
@@ -197,15 +203,16 @@ DEF_GANESH_TEST_FOR_GL_RENDERING_CONTEXTS(SkTraceMemoryDump_unownedGLRenderTarge
                                                                4,
                                                                rtIDs,
                                                                0,
+                                                               skgpu::Protected::kNo,
                                                                /*label=*/{});
 
     ValidateMemoryDumps(reporter, dContext, 2, rt->gpuMemorySize(), false /* isOwned */);
 }
 
-DEF_GANESH_TEST_FOR_GL_RENDERING_CONTEXTS(SkTraceMemoryDump_ownedGLTextureRenderTarget,
-                                          reporter,
-                                          ctxInfo,
-                                          CtsEnforcement::kApiLevel_T) {
+DEF_GANESH_TEST_FOR_GL_CONTEXT(SkTraceMemoryDump_ownedGLTextureRenderTarget,
+                               reporter,
+                               ctxInfo,
+                               CtsEnforcement::kApiLevel_T) {
     auto dContext = ctxInfo.directContext();
     GrGLGpu* gpu = static_cast<GrGLGpu*>(dContext->priv().getGpu());
 
@@ -217,6 +224,7 @@ DEF_GANESH_TEST_FOR_GL_RENDERING_CONTEXTS(SkTraceMemoryDump_ownedGLTextureRender
     texDesc.fID = 17;
     texDesc.fFormat = GrGLFormat::kRGBA8;
     texDesc.fOwnership = GrBackendObjectOwnership::kOwned;
+    texDesc.fIsProtected = skgpu::Protected::kNo;
 
     GrGLRenderTarget::IDs rtIDs;
     rtIDs.fMultisampleFBOID = 12;
@@ -226,7 +234,12 @@ DEF_GANESH_TEST_FOR_GL_RENDERING_CONTEXTS(SkTraceMemoryDump_ownedGLTextureRender
     rtIDs.fTotalMemorySamplesPerPixel = 9;
 
     auto texRT = sk_make_sp<GrGLTextureRenderTarget>(
-            gpu, SkBudgeted::kYes, 8, texDesc, rtIDs, GrMipmapStatus::kNotAllocated,
+            gpu,
+            skgpu::Budgeted::kYes,
+            8,
+            texDesc,
+            rtIDs,
+            GrMipmapStatus::kNotAllocated,
             /*label=*/"SkTraceMemoryDump_ownedGLTextureRenderTarget");
 
     ValidateMemoryDumps(reporter, dContext, 3, texRT->gpuMemorySize(), true /* isOwned */);

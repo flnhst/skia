@@ -12,8 +12,18 @@
 
 namespace skgpu::graphite {
 
+class Context;
+class Task;
+class Surface;
+
 class RecordingPriv {
 public:
+    TextureProxy* deferredTargetProxy();
+    const Texture* setupDeferredTarget(ResourceProvider*,
+                                       Surface* targetSurface,
+                                       SkIVector targetTranslation,
+                                       SkIRect targetClip);
+
     bool hasVolatileLazyProxies() const;
     bool instantiateVolatileLazyProxies(ResourceProvider*);
     void deinstantiateVolatileLazyProxies();
@@ -21,14 +31,30 @@ public:
     bool hasNonVolatileLazyProxies() const;
     bool instantiateNonVolatileLazyProxies(ResourceProvider*);
 
-#if GR_TEST_UTILS
-    int numVolatilePromiseImages() const;
-    int numNonVolatilePromiseImages() const;
-#endif
+    void setFailureResultForFinishedProcs();
 
-    bool addCommands(ResourceProvider*, CommandBuffer*);
+    bool addCommands(Context*,
+                     CommandBuffer*,
+                     const Texture* replayTarget,
+                     SkIVector targetTranslation,
+                     SkIRect targetClip);
+    // This will eventually lead to adding a Usage Ref on the CommandBuffer. For now that is fine
+    // since the only Resource's we are reffing here are Buffers. However, if we ever want to track
+    // Textures or GPU only Buffers as well, we should keep a second list for Refs that we want to
+    // put CommandBuffer refs on.
     void addResourceRef(sk_sp<Resource> resource);
 
+    TaskList* taskList() { return fRecording->fRootTaskList.get(); }
+
+    uint32_t recorderID() const { return fRecording->fRecorderID; }
+    uint32_t uniqueID() const { return fRecording->fUniqueID; }
+
+#if defined(GPU_TEST_UTILS)
+    bool isTargetProxyInstantiated() const;
+    int numVolatilePromiseImages() const;
+    int numNonVolatilePromiseImages() const;
+    bool hasTasks() const;
+#endif
 
 private:
     explicit RecordingPriv(Recording* recorder) : fRecording(recorder) {}

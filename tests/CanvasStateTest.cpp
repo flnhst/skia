@@ -12,6 +12,7 @@
 #include "include/core/SkColor.h"
 #include "include/core/SkColorType.h"
 #include "include/core/SkData.h"
+#include "include/core/SkDataTable.h"
 #include "include/core/SkImage.h"
 #include "include/core/SkImageInfo.h"
 #include "include/core/SkPaint.h"
@@ -25,9 +26,11 @@
 #include "include/core/SkString.h"
 #include "include/core/SkSurface.h"
 #include "include/core/SkTypes.h"
-#include "include/private/SkTDArray.h"
+#include "include/encode/SkPngEncoder.h"
+#include "include/private/base/SkDebug.h"
+#include "include/private/base/SkTDArray.h"
 #include "include/utils/SkCanvasStateUtils.h"
-#include "src/core/SkTLazy.h"
+#include "src/base/SkTLazy.h"
 #include "tests/Test.h"
 
 #include <array>
@@ -55,7 +58,7 @@ static DEFINE_string(library, "",
                      " called to test SkCanvasState. The library is built from the canvas_state_lib"
                      " target");
 
-#include "src/ports/SkOSLibrary.h"
+#include "tools/library/LoadDynamicLibrary.h"
 
 // Automatically loads library passed to --library flag and closes it when it goes out of scope.
 class OpenLibResult {
@@ -90,7 +93,7 @@ private:
 #endif
 
 static void write_image(const SkImage* img, const char path[]) {
-    auto data = img->encodeToData();
+    auto data = SkPngEncoder::Encode(nullptr, img, {});
     SkFILEWStream(path).write(data->data(), data->size());
 }
 
@@ -152,9 +155,8 @@ DEF_TEST(CanvasState_test_complex_layers, reporter) {
     for (size_t i = 0; i < std::size(colorTypes); ++i) {
         sk_sp<SkImage> images[2];
         for (int j = 0; j < 2; ++j) {
-            auto surf = SkSurface::MakeRaster(SkImageInfo::Make(WIDTH, HEIGHT,
-                                                                colorTypes[i],
-                                                                kPremul_SkAlphaType));
+            auto surf = SkSurfaces::Raster(
+                    SkImageInfo::Make(WIDTH, HEIGHT, colorTypes[i], kPremul_SkAlphaType));
             SkCanvas* canvas = surf->getCanvas();
 
             canvas->drawColor(SK_ColorRED);
@@ -246,7 +248,7 @@ DEF_TEST(CanvasState_test_complex_clips, reporter) {
 
     sk_sp<SkImage> images[2];
     for (int i = 0; i < 2; ++i) {
-        auto surf = SkSurface::MakeRaster(SkImageInfo::MakeN32Premul(WIDTH, HEIGHT));
+        auto surf = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(WIDTH, HEIGHT));
         SkCanvas* canvas = surf->getCanvas();
 
         canvas->drawColor(SK_ColorRED);

@@ -87,7 +87,7 @@ npm:
 
 	# These features are turned off to keep code size smaller for the
 	# general use case.
-	./compile.sh release no_skottie no_particles no_rt_shader no_sksl_trace no_alias_font \
+	./compile.sh release no_skottie no_sksl_trace no_alias_font \
 		no_effects_deserialization no_encode_jpeg no_encode_webp legacy_draw_vertices \
 		no_embedded_font
 	cp ../../out/canvaskit_wasm/canvaskit.js       ./npm_build/bin
@@ -118,6 +118,10 @@ single-gm:
 
 local-example:
 	echo "Go check out http://localhost:8000/npm_build/example.html"
+	python3 ../../tools/serve_wasm.py
+
+local-extra:
+	echo "Go check out http://localhost:8000/npm_build/extra.html"
 	python3 ../../tools/serve_wasm.py
 
 test-continuous:

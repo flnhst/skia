@@ -7,9 +7,10 @@
 
 #include "src/gpu/ganesh/GrBufferUpdateRenderTask.h"
 
-#include "src/gpu/ganesh/GrGpu.h"
-#include "src/gpu/ganesh/GrOpFlushState.h"
-#include "src/gpu/ganesh/GrResourceAllocator.h"
+#include "include/core/SkData.h"
+#include "src/gpu/ganesh/GrGpuBuffer.h"
+
+#include <utility>
 
 sk_sp<GrRenderTask> GrBufferUpdateRenderTask::Make(sk_sp<SkData> src,
                                                    sk_sp<GrGpuBuffer> dst,
@@ -24,7 +25,9 @@ GrBufferUpdateRenderTask::GrBufferUpdateRenderTask(sk_sp<SkData> src,
                                                    size_t dstOffset)
         : fSrc(std::move(src))
         , fDst(std::move(dst))
-        , fDstOffset(dstOffset) {}
+        , fDstOffset(dstOffset) {
+    this->setFlag(kBlocksReordering_Flag);
+}
 
 GrBufferUpdateRenderTask::~GrBufferUpdateRenderTask() = default;
 

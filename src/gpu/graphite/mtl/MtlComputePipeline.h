@@ -22,9 +22,8 @@ class MtlSharedContext;
 
 class MtlComputePipeline final : public ComputePipeline {
 public:
-    static sk_sp<MtlComputePipeline> Make(ResourceProvider*,
-                                          const MtlSharedContext*,
-                                          const ComputePipelineDesc&);
+    static sk_sp<MtlComputePipeline> Make(const MtlSharedContext*, const ComputePipelineDesc&);
+
     ~MtlComputePipeline() override = default;
 
     id<MTLComputePipelineState> mtlPipelineState() const { return fPipelineState.get(); }

@@ -8,14 +8,22 @@
 #ifndef GrDistanceFieldGeoProc_DEFINED
 #define GrDistanceFieldGeoProc_DEFINED
 
-#include "src/core/SkArenaAlloc.h"
-#include "src/gpu/ganesh/GrGeometryProcessor.h"
-#include "src/gpu/ganesh/GrProcessor.h"
+#if !defined(SK_DISABLE_SDF_TEXT)
 
-class GrGLDistanceFieldA8TextGeoProc;
-class GrGLDistanceFieldPathGeoProc;
-class GrGLDistanceFieldLCDTextGeoProc;
-class GrInvariantOutput;
+#include "include/core/SkMatrix.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkSize.h"
+#include "src/base/SkArenaAlloc.h"
+#include "src/gpu/ganesh/GrGeometryProcessor.h"
+#include "src/gpu/ganesh/GrProcessorUnitTest.h"
+#include "src/gpu/ganesh/GrSamplerState.h"
+
+#include <cstdint>
+#include <memory>
+
+class GrSurfaceProxyView;
+namespace skgpu { class KeyBuilder; }
+struct GrShaderCaps;
 
 enum GrDistanceFieldEffectFlags {
     kSimilarity_DistanceFieldEffectFlag   = 0x001, // ctm is similarity matrix
@@ -23,7 +31,7 @@ enum GrDistanceFieldEffectFlags {
     kPerspective_DistanceFieldEffectFlag  = 0x004, // ctm has perspective (and positions are x,y,w)
     kUseLCD_DistanceFieldEffectFlag       = 0x008, // use lcd text
     kBGR_DistanceFieldEffectFlag          = 0x010, // lcd display has bgr order
-    kPortrait_DistanceFieldEffectFlag     = 0x020, // lcd display is in portrait mode (not used yet)
+    kPortrait_DistanceFieldEffectFlag     = 0x020, // lcd display is in portrait mode
     kGammaCorrect_DistanceFieldEffectFlag = 0x040, // assume gamma-correct output (linear blending)
     kAliased_DistanceFieldEffectFlag      = 0x080, // monochrome output
     kWideColor_DistanceFieldEffectFlag    = 0x100, // use wide color (only for path)
@@ -51,6 +59,7 @@ enum GrDistanceFieldEffectFlags {
                                             kPerspective_DistanceFieldEffectFlag |
                                             kUseLCD_DistanceFieldEffectFlag |
                                             kBGR_DistanceFieldEffectFlag |
+                                            kPortrait_DistanceFieldEffectFlag |
                                             kGammaCorrect_DistanceFieldEffectFlag,
 };
 
@@ -135,7 +144,6 @@ private:
     using INHERITED = GrGeometryProcessor;
 };
 
-#if !defined(SK_ENABLE_OPTIMIZE_SIZE)
 /**
  * The output color of this effect is a modulation of the input color and a sample from a
  * distance field texture (using a smoothed step function near 0.5).
@@ -191,7 +199,6 @@ private:
 
     using INHERITED = GrGeometryProcessor;
 };
-#endif // SK_ENABLE_OPTIMIZE_SIZE
 
 /**
  * The output color of this effect is a modulation of the input color and samples from a
@@ -265,5 +272,7 @@ private:
 
     using INHERITED = GrGeometryProcessor;
 };
+
+#endif // !defined(SK_DISABLE_SDF_TEXT)
 
 #endif

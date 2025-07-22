@@ -7,12 +7,13 @@
 
 #include "include/core/SkFont.h"
 #include "include/core/SkFontTypes.h"
+#include "src/base/SkUTF.h"
 #include "src/core/SkFontPriv.h"
-#include "src/utils/SkUTF.h"
 #include "tests/Test.h"
+#include "tools/fonts/FontToolUtils.h"
 
-#include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <string>
 
 // Simple test to ensure that when we call textToGlyphs, we get the same
@@ -35,7 +36,7 @@ DEF_TEST(Unicode_textencodings, reporter) {
     uint16_t glyphs16[sizeof(text8)];
     uint16_t glyphs32[sizeof(text8)];
 
-    SkFont font;
+    SkFont font = ToolUtils::DefaultFont();
 
     int count8  = font.textToGlyphs(text8,  len8,  SkTextEncoding::kUTF8,  glyphs8,  std::size(glyphs8));
     int count16 = font.textToGlyphs(text16, len16, SkTextEncoding::kUTF16, glyphs16, std::size(glyphs16));
@@ -50,7 +51,7 @@ DEF_TEST(Unicode_textencodings, reporter) {
 }
 
 DEF_TEST(glyphs_to_unichars, reporter) {
-    SkFont font;
+    SkFont font = ToolUtils::DefaultFont();
 
     const int N = 52;
     SkUnichar uni[N];

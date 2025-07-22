@@ -8,6 +8,7 @@
 #include "include/core/SkRefCnt.h"
 #include "include/core/SkTypes.h"
 #include "include/private/SkWeakRefCnt.h"
+#include "include/private/base/SkDebug.h"
 #include "tests/Test.h"
 
 #include <thread>
@@ -139,7 +140,7 @@ struct EffectImpl : public Effect {
 static sk_sp<Effect> make_effect() {
     auto foo = EffectImpl::Create();
     foo->fValue = 42;
-    return std::move(foo);
+    return foo;
 }
 
 static void reset_counters() {

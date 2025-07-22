@@ -8,9 +8,16 @@
 #ifndef GrMockBuffer_DEFINED
 #define GrMockBuffer_DEFINED
 
+#include "include/gpu/GpuTypes.h"
+#include "include/private/base/SkMalloc.h"
+#include "include/private/gpu/ganesh/GrTypesPriv.h"
 #include "src/gpu/ganesh/GrCaps.h"
+#include "src/gpu/ganesh/GrGpu.h"
 #include "src/gpu/ganesh/GrGpuBuffer.h"
 #include "src/gpu/ganesh/mock/GrMockGpu.h"
+
+#include <cstddef>
+#include <string_view>
 
 class GrMockBuffer : public GrGpuBuffer {
 public:
@@ -18,7 +25,7 @@ public:
                  GrAccessPattern accessPattern,
                  std::string_view label)
             : INHERITED(gpu, sizeInBytes, type, accessPattern, label) {
-        this->registerWithCache(SkBudgeted::kYes);
+        this->registerWithCache(skgpu::Budgeted::kYes);
     }
 
 private:

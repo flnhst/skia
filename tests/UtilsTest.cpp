@@ -7,12 +7,13 @@
 
 #include "include/core/SkRefCnt.h"
 #include "include/core/SkSpan.h"
-#include "include/private/SkTemplates.h"
-#include "include/utils/SkRandom.h"
+#include "include/private/base/SkTemplates.h"
+#include "src/base/SkRandom.h"
+#include "src/base/SkTSearch.h"
+#include "src/base/SkTSort.h"
+#include "src/base/SkUtils.h"
+#include "src/base/SkZip.h"
 #include "src/core/SkEnumerate.h"
-#include "src/core/SkTSearch.h"
-#include "src/core/SkTSort.h"
-#include "src/core/SkZip.h"
 #include "tests/Test.h"
 
 #include <array>
@@ -24,6 +25,8 @@
 #include <tuple>
 #include <utility>
 #include <vector>
+
+using namespace skia_private;
 
 class RefClass : public SkRefCnt {
 public:
@@ -64,7 +67,7 @@ static void test_autostarray(skiatest::Reporter* reporter) {
     REPORTER_ASSERT(reporter, obj1.unique());
 
     {
-        SkAutoSTArray<2, sk_sp<RefClass> > tmp;
+        AutoSTArray<2, sk_sp<RefClass> > tmp;
         REPORTER_ASSERT(reporter, 0 == tmp.count());
 
         tmp.reset(0);   // test out reset(0) when already at 0
@@ -93,7 +96,7 @@ static void test_autostarray(skiatest::Reporter* reporter) {
 
     {
         // test out allocating ctor (this should allocate new memory)
-        SkAutoSTArray<2, sk_sp<RefClass> > tmp(4);
+        AutoSTArray<2, sk_sp<RefClass> > tmp(4);
         REPORTER_ASSERT(reporter, 4 == tmp.count());
 
         tmp[0].reset(SkRef(&obj0));
@@ -606,5 +609,38 @@ DEF_TEST(SkMakeZip, reporter) {
         constexpr static const uint16_t* cP = &cA[0];
         constexpr auto z = SkMakeZip(cA, cP);
         REPORTER_ASSERT(reporter, !z.empty());
+    }
+}
+
+DEF_TEST(UtilsPreserveBitPatterns, r) {
+    // Various kinds of floating point bit patterns. We round trip each one through float using
+    // utility functions. If any of them ever do any real FP operation (including loading it into
+    // the x87 FPU on x86 builds), they might change. (In practice, signaling NaN is the only one
+    // that's likely to break -- it can be converted to a quiet NaN).
+    const uint32_t kBitPatterns[] = {
+        0x00400000,  // Denormal value
+        0x80000000,  // -0.0f
+        0x3f800000,  // 1.0f (arbitrary normal float)
+        0x7f800000,  // Infinity
+        0x7fa00000,  // Signaling NaN
+        0x7fe00000,  // Quiet NaN
+    };
+
+    for (uint32_t srcBits : kBitPatterns) {
+        {
+            float floatVal = sk_unaligned_load<float>(&srcBits);
+            uint32_t dstBits = sk_unaligned_load<uint32_t>(&floatVal);
+            REPORTER_ASSERT(r, dstBits == srcBits);
+        }
+
+        {
+            float floatVal;
+            sk_unaligned_store(&floatVal, srcBits);
+            uint32_t dstBits;
+            sk_unaligned_store(&dstBits, floatVal);
+            REPORTER_ASSERT(r, dstBits == srcBits);
+        }
+
+        REPORTER_ASSERT(r, sk_bit_cast<uint32_t>(sk_bit_cast<float>(srcBits)) == srcBits);
     }
 }

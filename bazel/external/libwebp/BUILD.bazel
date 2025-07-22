@@ -13,6 +13,8 @@ config_setting(
 WEBP_SRCS = [
     "sharpyuv/sharpyuv.c",
     "sharpyuv/sharpyuv.h",
+    "sharpyuv/sharpyuv_cpu.c",
+    "sharpyuv/sharpyuv_cpu.h",
     "sharpyuv/sharpyuv_csp.c",
     "sharpyuv/sharpyuv_csp.h",
     "sharpyuv/sharpyuv_dsp.c",
@@ -155,6 +157,8 @@ WEBP_SRCS = [
     "src/utils/huffman_encode_utils.h",
     "src/utils/huffman_utils.c",
     "src/utils/huffman_utils.h",
+    "src/utils/palette.c",
+    "src/utils/palette.h",
     "src/utils/quant_levels_dec_utils.c",
     "src/utils/quant_levels_dec_utils.h",
     "src/utils/quant_levels_utils.c",
@@ -209,5 +213,6 @@ cc_library(
     copts = WEBP_COPTS,
     includes = ["src"],
     local_defines = WEBP_DEFINES,
+    textual_hdrs = ["src/dsp/cpu.c"],
     visibility = ["//visibility:public"],
 )

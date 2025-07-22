@@ -11,13 +11,11 @@
 #include "include/core/SkCanvas.h"
 #include "include/core/SkColor.h"
 #include "include/core/SkColorType.h"
-#include "include/core/SkData.h"
-#include "include/core/SkEncodedImageFormat.h"
+#include "include/core/SkDataTable.h"
 #include "include/core/SkFont.h"
 #include "include/core/SkFontMgr.h"
 #include "include/core/SkFontStyle.h"
 #include "include/core/SkFontTypes.h"
-#include "include/core/SkImageEncoder.h"
 #include "include/core/SkImageInfo.h"
 #include "include/core/SkPaint.h"
 #include "include/core/SkPoint.h"
@@ -31,32 +29,40 @@
 #include "include/core/SkTextBlob.h"
 #include "include/core/SkTypeface.h"
 #include "include/core/SkTypes.h"
-#include "include/gpu/GrDirectContext.h"
-#include "include/private/SkSpinlock.h"
-#include "include/private/SkTArray.h"
-#include "include/private/SkTemplates.h"
+#include "include/encode/SkPngEncoder.h"
+#include "include/gpu/GpuTypes.h"
+#include "include/gpu/ganesh/GrDirectContext.h"
+#include "include/gpu/ganesh/SkSurfaceGanesh.h"
+#include "include/private/base/SkTArray.h"
+#include "include/private/base/SkTemplates.h"
+#include "include/private/base/SkTo.h"
+#include "src/base/SkSpinlock.h"
 #include "src/gpu/ganesh/GrDirectContextPriv.h"
 #include "src/gpu/ganesh/text/GrAtlasManager.h"
 #include "src/text/gpu/TextBlobRedrawCoordinator.h"
 #include "tests/CtsEnforcement.h"
 #include "tests/Test.h"
+#include "tools/fonts/FontToolUtils.h"
 #include "tools/fonts/RandomScalerContext.h"
+#include "tools/gpu/ganesh/GrAtlasTools.h"
 
 #ifdef SK_BUILD_FOR_WIN
     #include "include/ports/SkTypeface_win.h"
 #endif
 
 #include <algorithm>
-#include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <string>
+
+using namespace skia_private;
 
 struct GrContextOptions;
 
-static void draw(SkCanvas* canvas, int redraw, const SkTArray<sk_sp<SkTextBlob>>& blobs) {
+static void draw(SkCanvas* canvas, int redraw, const TArray<sk_sp<SkTextBlob>>& blobs) {
     int yOffset = 0;
     for (int r = 0; r < redraw; r++) {
-        for (int i = 0; i < blobs.count(); i++) {
+        for (int i = 0; i < blobs.size(); i++) {
             const auto& blob = blobs[i];
             const SkRect& bounds = blob->bounds();
             yOffset += SkScalarCeilToInt(bounds.height());
@@ -70,7 +76,7 @@ static const int kWidth = 1024;
 static const int kHeight = 768;
 
 static void setup_always_evict_atlas(GrDirectContext* dContext) {
-    dContext->priv().getAtlasManager()->setAtlasDimensionsToMinimum_ForTesting();
+    GrAtlasManagerTools::SetAtlasDimensionsToMinimum(dContext->priv().getAtlasManager());
 }
 
 class GrTextBlobTestingPeer {
@@ -98,7 +104,7 @@ static void text_blob_cache_inner(skiatest::Reporter* reporter, GrDirectContext*
 
     SkImageInfo info = SkImageInfo::Make(kWidth, kHeight, kRGBA_8888_SkColorType,
                                          kPremul_SkAlphaType);
-    auto surface(SkSurface::MakeRenderTarget(dContext, SkBudgeted::kNo, info, 0, &props));
+    auto surface(SkSurfaces::RenderTarget(dContext, skgpu::Budgeted::kNo, info, 0, &props));
     REPORTER_ASSERT(reporter, surface);
     if (!surface) {
         return;
@@ -106,18 +112,18 @@ static void text_blob_cache_inner(skiatest::Reporter* reporter, GrDirectContext*
 
     SkCanvas* canvas = surface->getCanvas();
 
-    sk_sp<SkFontMgr> fm(SkFontMgr::RefDefault());
+    sk_sp<SkFontMgr> fm(ToolUtils::TestFontMgr());
 
     int count = std::min(fm->countFamilies(), maxFamilies);
 
     // make a ton of text
-    SkAutoTArray<uint16_t> text(maxTotalText);
+    AutoTArray<uint16_t> text(maxTotalText);
     for (int i = 0; i < maxTotalText; i++) {
         text[i] = i % maxGlyphID;
     }
 
     // generate textblobs
-    SkTArray<sk_sp<SkTextBlob>> blobs;
+    TArray<sk_sp<SkTextBlob>> blobs;
     for (int i = 0; i < count; i++) {
         SkFont font;
         font.setSize(48); // draw big glyphs to really stress the atlas
@@ -241,7 +247,7 @@ static bool compare_bitmaps(const SkBitmap& expected, const SkBitmap& actual) {
 }
 
 static sk_sp<SkTextBlob> make_blob() {
-    auto tf = SkTypeface::MakeFromName("Roboto2-Regular", SkFontStyle());
+    auto tf = ToolUtils::CreateTestTypeface("Roboto2-Regular", SkFontStyle());
     SkFont font;
     font.setTypeface(tf);
     font.setSubpixel(false);
@@ -265,7 +271,7 @@ static sk_sp<SkTextBlob> make_blob() {
 // Turned off to pass on android and ios devices, which were running out of memory..
 #if 0
 static sk_sp<SkTextBlob> make_large_blob() {
-    auto tf = SkTypeface::MakeFromName("Roboto2-Regular", SkFontStyle());
+    auto tf = ToolUtils::CreateTestTypeface("Roboto2-Regular", SkFontStyle());
     SkFont font;
     font.setTypeface(tf);
     font.setSubpixel(false);
@@ -300,7 +306,7 @@ DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(TextBlobIntegerOverflowTest, reporter, ct
     auto dContext = ctxInfo.directContext();
     const SkImageInfo info =
             SkImageInfo::Make(kScreenDim, kScreenDim, kN32_SkColorType, kPremul_SkAlphaType);
-    auto surface = SkSurface::MakeRenderTarget(dContext, SkBudgeted::kNo, info);
+    auto surface = SkSurfaces::RenderTarget(dContext, skgpu::Budgeted::kNo, info);
 
     auto blob = make_large_blob();
     int y = 40;
@@ -313,9 +319,8 @@ static const bool kDumpPngs = true;
 // skdiff tool to visualize the differences.
 
 void write_png(const std::string& filename, const SkBitmap& bitmap) {
-    auto data = SkEncodeBitmap(bitmap, SkEncodedImageFormat::kPNG, 0);
     SkFILEWStream w{filename.c_str()};
-    w.write(data->data(), data->size());
+    SkASSERT_RELEASE(SkPngEncoder::Encode(&w, bitmap.pixmap(), {}));
     w.fsync();
 }
 
@@ -326,7 +331,7 @@ DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(TextBlobJaggedGlyph,
     auto direct = ctxInfo.directContext();
     const SkImageInfo info =
             SkImageInfo::Make(kScreenDim, kScreenDim, kN32_SkColorType, kPremul_SkAlphaType);
-    auto surface = SkSurface::MakeRenderTarget(direct, SkBudgeted::kNo, info);
+    auto surface = SkSurfaces::RenderTarget(direct, skgpu::Budgeted::kNo, info);
 
     auto blob = make_blob();
 
@@ -385,7 +390,7 @@ DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(TextBlobSmoothScroll,
     auto direct = ctxInfo.directContext();
     const SkImageInfo info =
             SkImageInfo::Make(kScreenDim, kScreenDim, kN32_SkColorType, kPremul_SkAlphaType);
-    auto surface = SkSurface::MakeRenderTarget(direct, SkBudgeted::kNo, info);
+    auto surface = SkSurfaces::RenderTarget(direct, skgpu::Budgeted::kNo, info);
 
     auto movingBlob = make_blob();
 

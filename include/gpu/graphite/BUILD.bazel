@@ -1,14 +1,28 @@
-load("//bazel:macros.bzl", "exports_files_legacy")
+load("//bazel:skia_rules.bzl", "skia_filegroup")
+
+package(
+    default_applicable_licenses = ["//:license"],
+)
 
 licenses(["notice"])
 
-exports_files_legacy()
-
-# Mapped to //gn/core.gni:skia_precompile_public.
-filegroup(
-    name = "precompile_public_hdrs",
+skia_filegroup(
+    name = "public_hdrs",
     srcs = [
-        "CombinationBuilder.h",
+        "BackendSemaphore.h",
+        "BackendTexture.h",
+        "Context.h",
+        "ContextOptions.h",
+        "GraphiteTypes.h",
+        "Image.h",
+        "ImageProvider.h",
+        "LogPriority.h",
+        "PrecompileContext.h",
+        "Recorder.h",
+        "Recording.h",
+        "Surface.h",
+        "TextureInfo.h",
+        "YUVABackendTextures.h",
     ],
-    visibility = ["//include:__pkg__"],
+    visibility = ["//src/gpu/graphite:__subpackages__"],
 )

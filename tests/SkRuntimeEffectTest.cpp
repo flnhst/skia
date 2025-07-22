@@ -29,17 +29,20 @@
 #include "include/effects/SkBlenders.h"
 #include "include/effects/SkGradientShader.h"
 #include "include/effects/SkRuntimeEffect.h"
-#include "include/gpu/GrDirectContext.h"
+#include "include/gpu/GpuTypes.h"
+#include "include/gpu/ganesh/GrDirectContext.h"
+#include "include/gpu/ganesh/SkSurfaceGanesh.h"
 #include "include/private/SkColorData.h"
 #include "include/private/SkSLSampleUsage.h"
-#include "include/private/SkSLString.h"
-#include "include/private/SkTArray.h"
+#include "include/private/base/SkTArray.h"
 #include "include/sksl/SkSLDebugTrace.h"
 #include "include/sksl/SkSLVersion.h"
+#include "src/base/SkStringView.h"
+#include "src/base/SkTLazy.h"
 #include "src/core/SkColorSpacePriv.h"
 #include "src/core/SkRuntimeEffectPriv.h"
-#include "src/core/SkTLazy.h"
 #include "src/gpu/KeyBuilder.h"
+#include "src/gpu/SkBackingFit.h"
 #include "src/gpu/ganesh/GrCaps.h"
 #include "src/gpu/ganesh/GrColor.h"
 #include "src/gpu/ganesh/GrDirectContextPriv.h"
@@ -48,6 +51,7 @@
 #include "src/gpu/ganesh/GrPixmap.h"
 #include "src/gpu/ganesh/SurfaceFillContext.h"
 #include "src/gpu/ganesh/effects/GrSkSLFP.h"
+#include "src/sksl/SkSLString.h"
 #include "tests/CtsEnforcement.h"
 #include "tests/Test.h"
 
@@ -60,14 +64,17 @@
 #include <thread>
 #include <utility>
 
+using namespace skia_private;
+
 class GrRecordingContext;
 struct GrContextOptions;
 struct SkIPoint;
 
-#ifdef SK_GRAPHITE_ENABLED
+#if defined(SK_GRAPHITE)
 #include "include/gpu/graphite/Context.h"
 #include "include/gpu/graphite/Recorder.h"
 #include "include/gpu/graphite/Recording.h"
+#include "include/gpu/graphite/Surface.h"
 #include "src/gpu/graphite/Surface_Graphite.h"
 
 struct GraphiteInfo {
@@ -87,7 +94,7 @@ void test_invalid_effect(skiatest::Reporter* r, const char* src, const char* exp
     REPORTER_ASSERT(r, errorText.contains(expected),
                     "Expected error message to contain \"%s\". Actual message: \"%s\"",
                     expected, errorText.c_str());
-};
+}
 
 #define EMPTY_MAIN "half4 main(float2 p) { return half4(0); }"
 
@@ -118,8 +125,7 @@ DEF_TEST(SkRuntimeEffectInvalid_SkCapsDisallowed, r) {
 }
 
 DEF_TEST(SkRuntimeEffect_DeadCodeEliminationStackOverflow, r) {
-    // Verify that a deeply-nested loop does not cause stack overflow during SkVM dead-code
-    // elimination.
+    // Verify that a deeply-nested loop does not cause stack overflow during dead-code elimination.
     auto [effect, errorText] = SkRuntimeEffect::MakeForColorFilter(SkString(R"(
         half4 main(half4 color) {
             half value = color.r;
@@ -390,31 +396,19 @@ void paint_canvas(SkCanvas* canvas, SkPaint* paint, const PreTestFn& preTestCall
 }
 
 static bool read_pixels(SkSurface* surface,
-                        const GraphiteInfo* graphite,
                         GrColor* pixels) {
     SkImageInfo info = surface->imageInfo();
     SkPixmap dest{info, pixels, info.minRowBytes()};
-    if (graphite) {
-#ifdef SK_GRAPHITE_ENABLED
-        auto* graphiteSurface = static_cast<skgpu::graphite::Surface*>(surface);
-        return graphiteSurface->onReadPixels(graphite->context, graphite->recorder, dest,
-                                             /*srcX=*/0, /*srcY=*/0);
-#else
-        return false;
-#endif
-    } else {
-        return surface->readPixels(dest, /*srcX=*/0, /*srcY=*/0);
-    }
+    return surface->readPixels(dest, /*srcX=*/0, /*srcY=*/0);
 }
 
 static void verify_2x2_surface_results(skiatest::Reporter* r,
                                        const SkRuntimeEffect* effect,
                                        SkSurface* surface,
-                                       const GraphiteInfo* graphite,
                                        std::array<GrColor, 4> expected) {
     std::array<GrColor, 4> actual;
     SkImageInfo info = surface->imageInfo();
-    if (!read_pixels(surface, graphite, actual.data())) {
+    if (!read_pixels(surface, actual.data())) {
         REPORT_FAILURE(r, "readPixels", SkString("readPixels failed"));
         return;
     }
@@ -437,13 +431,13 @@ static sk_sp<SkSurface> make_surface(GrRecordingContext* grContext,
     const SkImageInfo info = SkImageInfo::Make(size, kRGBA_8888_SkColorType, kPremul_SkAlphaType);
     sk_sp<SkSurface> surface;
     if (graphite) {
-#ifdef SK_GRAPHITE_ENABLED
-        surface = SkSurface::MakeGraphite(graphite->recorder, info);
+#if defined(SK_GRAPHITE)
+        surface = SkSurfaces::RenderTarget(graphite->recorder, info);
 #endif
     } else if (grContext) {
-        surface = SkSurface::MakeRenderTarget(grContext, SkBudgeted::kNo, info);
+        surface = SkSurfaces::RenderTarget(grContext, skgpu::Budgeted::kNo, info);
     } else {
-        surface = SkSurface::MakeRaster(info);
+        surface = SkSurfaces::Raster(info);
     }
     SkASSERT(surface);
     return surface;
@@ -500,8 +494,7 @@ public:
 
         paint_canvas(canvas, &paint, preTestCallback);
 
-        verify_2x2_surface_results(fReporter, fBuilder->effect(), fSurface.get(), fGraphite,
-                                   expected);
+        verify_2x2_surface_results(fReporter, fBuilder->effect(), fSurface.get(), expected);
     }
 
     std::string trace(const SkIPoint& traceCoord) {
@@ -546,8 +539,12 @@ public:
         fSurface = make_surface(fGrContext, fGraphite, /*size=*/{2, 2});
     }
 
-    void build(const char* src) {
-        auto [effect, errorText] = SkRuntimeEffect::MakeForBlender(SkString(src));
+    void build(const char* src, bool allowPrivateAccess = false) {
+        SkRuntimeEffect::Options options;
+        if (allowPrivateAccess) {
+            SkRuntimeEffectPriv::AllowPrivateAccess(&options);
+        }
+        auto [effect, errorText] = SkRuntimeEffect::MakeForBlender(SkString(src), options);
         if (!effect) {
             ERRORF(fReporter, "Effect didn't compile: %s", errorText.c_str());
             return;
@@ -581,8 +578,7 @@ public:
 
         paint_canvas(canvas, &paint, preTestCallback);
 
-        verify_2x2_surface_results(fReporter, fBuilder->effect(), fSurface.get(), fGraphite,
-                                   expected);
+        verify_2x2_surface_results(fReporter, fBuilder->effect(), fSurface.get(), expected);
     }
 
     void test(GrColor expected, PreTestFn preTestCallback = nullptr) {
@@ -664,13 +660,13 @@ static void test_RuntimeEffect_Shaders(skiatest::Reporter* r,
     // Sampling children
     //
 
-    // Sampling a null shader should return the paint color
+    // Sampling a null shader should return transparent black
     if (!graphite) {
         // TODO: Graphite does not yet pass this test.
         effect.build("uniform shader child;"
                      "half4 main(float2 p) { return child.eval(p); }");
         effect.child("child") = nullptr;
-        effect.test(0xFF00FFFF,
+        effect.test(0x00000000,
                     [](SkCanvas*, SkPaint* paint) { paint->setColor4f({1.0f, 1.0f, 0.0f, 1.0f}); });
     }
 
@@ -718,14 +714,22 @@ static void test_RuntimeEffect_Shaders(skiatest::Reporter* r,
     effect.build("float2 helper(float2 x) { return x + 1; }"
                  "half4 main(float2 p) { float2 v = helper(p); return half4(half2(v), 0, 1); }");
     effect.test(0xFF00FFFF);
+
+    // Passing a shader to a helper function
+    effect.build("uniform shader child; float2 position;"
+                 "noinline half4 my_eval(shader s) { return s.eval(position); }"
+                 "half4 main(float2 p) { position = p; return my_eval(child); }");
+    effect.child("child") = rgbwShader;
+    effect.test({0xFF0000FF, 0xFF00FF00, 0xFFFF0000, 0xFFFFFFFF});
 }
 
 DEF_TEST(SkRuntimeEffectSimple, r) {
     test_RuntimeEffect_Shaders(r, /*grContext=*/nullptr, /*graphite=*/nullptr);
 }
 
-#ifdef SK_GRAPHITE_ENABLED
-DEF_GRAPHITE_TEST_FOR_RENDERING_CONTEXTS(SkRuntimeEffectSimple_Graphite, r, context) {
+#if defined(SK_GRAPHITE)
+DEF_GRAPHITE_TEST_FOR_RENDERING_CONTEXTS(SkRuntimeEffectSimple_Graphite, r, context,
+                                         CtsEnforcement::kApiLevel_V) {
     std::unique_ptr<skgpu::graphite::Recorder> recorder = context->makeRecorder();
     GraphiteInfo graphite = {context, recorder.get()};
     test_RuntimeEffect_Shaders(r, /*grContext=*/nullptr, &graphite);
@@ -752,8 +756,7 @@ static void verify_draw_obeys_capabilities(skiatest::Reporter* r,
 
     surface->getCanvas()->clear(SK_ColorRED);
     surface->getCanvas()->drawPaint(paint);
-    verify_2x2_surface_results(r, effect, surface, /*graphite=*/nullptr,
-                               {kExpected, kExpected, kExpected, kExpected});
+    verify_2x2_surface_results(r, effect, surface, {kExpected, kExpected, kExpected, kExpected});
 }
 
 static void test_RuntimeEffectObeysCapabilities(skiatest::Reporter* r, SkSurface* surface) {
@@ -841,7 +844,7 @@ static void test_RuntimeEffectObeysCapabilities(skiatest::Reporter* r, SkSurface
 
 DEF_TEST(SkRuntimeEffectObeysCapabilities_CPU, r) {
     SkImageInfo info = SkImageInfo::Make(2, 2, kRGBA_8888_SkColorType, kPremul_SkAlphaType);
-    sk_sp<SkSurface> surface = SkSurface::MakeRaster(info);
+    sk_sp<SkSurface> surface = SkSurfaces::Raster(info);
     REPORTER_ASSERT(r, surface);
     test_RuntimeEffectObeysCapabilities(r, surface.get());
 }
@@ -849,17 +852,36 @@ DEF_TEST(SkRuntimeEffectObeysCapabilities_CPU, r) {
 DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(SkRuntimeEffectObeysCapabilities_GPU,
                                        r,
                                        ctxInfo,
-                                       CtsEnforcement::kApiLevel_T) {
+                                       CtsEnforcement::kApiLevel_U) {
     SkImageInfo info = SkImageInfo::Make(2, 2, kRGBA_8888_SkColorType, kPremul_SkAlphaType);
     sk_sp<SkSurface> surface =
-            SkSurface::MakeRenderTarget(ctxInfo.directContext(), SkBudgeted::kNo, info);
+            SkSurfaces::RenderTarget(ctxInfo.directContext(), skgpu::Budgeted::kNo, info);
     REPORTER_ASSERT(r, surface);
     test_RuntimeEffectObeysCapabilities(r, surface.get());
 }
 
+DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(SkRuntimeColorFilterReturningInvalidAlpha_GPU,
+                                       r,
+                                       ctxInfo,
+                                       CtsEnforcement::kNever) {
+    SkImageInfo info = SkImageInfo::Make(2, 2, kRGBA_8888_SkColorType, kPremul_SkAlphaType);
+    sk_sp<SkSurface> surface =
+            SkSurfaces::RenderTarget(ctxInfo.directContext(), skgpu::Budgeted::kNo, info);
+    REPORTER_ASSERT(r, surface);
+
+    auto effect = SkRuntimeEffect::MakeForColorFilter(SkString(R"(
+        half4 main(half4 color) { return half4(2); }
+    )")).effect;
+    REPORTER_ASSERT(r, effect);
+    SkPaint paint;
+    paint.setColorFilter(effect->makeColorFilter(/*uniforms=*/nullptr));
+    REPORTER_ASSERT(r, paint.getColorFilter());
+    surface->getCanvas()->drawPaint(paint);
+}
+
 DEF_TEST(SkRuntimeColorFilterLimitedToES2, r) {
     // Verify that SkSL requesting #version 300 can't be used to create a color-filter effect.
-    // This restriction could be removed if we can find a way to implement filterColor for these
+    // This restriction could be removed if we can find a way to implement filterColor4f for these
     // color filters.
     {
         auto effect = SkRuntimeEffect::MakeForColorFilter(SkString(R"(
@@ -897,16 +919,18 @@ DEF_TEST(SkRuntimeEffectTraceShader, r) {
         )");
         int center = imageSize / 2;
         std::string dump = effect.trace({center, 1});
-        auto expectation = SkSL::String::printf(R"($0 = [main].result (float4 : slot 1/4, L2)
-$1 = [main].result (float4 : slot 2/4, L2)
-$2 = [main].result (float4 : slot 3/4, L2)
-$3 = [main].result (float4 : slot 4/4, L2)
-$4 = p (float2 : slot 1/2, L2)
-$5 = p (float2 : slot 2/2, L2)
-$6 = val (float2 : slot 1/2, L3)
-$7 = val (float2 : slot 2/2, L3)
+        static constexpr char kSkRPSlotDump[] =
+R"($0 = p (float2 : slot 1/2, L0)
+$1 = p (float2 : slot 2/2, L0)
+$2 = [main].result (float4 : slot 1/4, L0)
+$3 = [main].result (float4 : slot 2/4, L0)
+$4 = [main].result (float4 : slot 3/4, L0)
+$5 = [main].result (float4 : slot 4/4, L0)
+$6 = val (float2 : slot 1/2, L0)
+$7 = val (float2 : slot 2/2, L0)
 F0 = half4 main(float2 p)
-
+)";
+        auto expectedTrace = SkSL::String::printf(R"(
 enter half4 main(float2 p)
   p.x = %d.5
   p.y = 1.5
@@ -922,9 +946,11 @@ enter half4 main(float2 p)
   scope -1
 exit half4 main(float2 p)
 )", center, center);
-        REPORTER_ASSERT(r, dump == expectation,
-                        "Trace output does not match expectation for %dx%d:\n%.*s\n",
-                        imageSize, imageSize, (int)dump.size(), dump.data());
+        REPORTER_ASSERT(
+                r,
+                skstd::starts_with(dump, kSkRPSlotDump) && skstd::ends_with(dump, expectedTrace),
+                "Trace does not match expectation for %dx%d:\n%.*s\n",
+                imageSize, imageSize, (int)dump.size(), dump.data());
     }
 }
 
@@ -944,18 +970,20 @@ DEF_TEST(SkRuntimeEffectTracesAreUnoptimized, r) {
         }
     )");
     std::string dump = effect.trace({1, 1});
-    constexpr char kExpectation[] = R"($0 = globalUnreferencedVar (int, L2)
-$1 = [main].result (float4 : slot 1/4, L6)
-$2 = [main].result (float4 : slot 2/4, L6)
-$3 = [main].result (float4 : slot 3/4, L6)
-$4 = [main].result (float4 : slot 4/4, L6)
-$5 = p (float2 : slot 1/2, L6)
-$6 = p (float2 : slot 2/2, L6)
-$7 = localUnreferencedVar (int, L8)
-$8 = [inlinableFunction].result (float, L3)
+    static constexpr char kSkRPSlotDump[] =
+R"($0 = p (float2 : slot 1/2, L0)
+$1 = p (float2 : slot 2/2, L0)
+$2 = globalUnreferencedVar (int, L0)
+$3 = [main].result (float4 : slot 1/4, L0)
+$4 = [main].result (float4 : slot 2/4, L0)
+$5 = [main].result (float4 : slot 3/4, L0)
+$6 = [main].result (float4 : slot 4/4, L0)
+$7 = localUnreferencedVar (int, L0)
+$8 = [inlinableFunction].result (float, L0)
 F0 = half4 main(float2 p)
 F1 = half inlinableFunction()
-
+)";
+    static constexpr char kExpectedTrace[] = R"(
 globalUnreferencedVar = 7
 enter half4 main(float2 p)
   p.x = 1.5
@@ -980,9 +1008,10 @@ enter half4 main(float2 p)
   scope -1
 exit half4 main(float2 p)
 )";
-    REPORTER_ASSERT(r, dump == kExpectation,
-                    "Trace output does not match expectation:\n%.*s\n",
-                    (int)dump.size(), dump.data());
+    REPORTER_ASSERT(
+            r,
+            skstd::starts_with(dump, kSkRPSlotDump) && skstd::ends_with(dump, kExpectedTrace),
+            "Trace output does not match expectation:\n%.*s\n", (int)dump.size(), dump.data());
 }
 
 DEF_TEST(SkRuntimeEffectTraceCodeThatCannotBeUnoptimized, r) {
@@ -999,14 +1028,16 @@ DEF_TEST(SkRuntimeEffectTraceCodeThatCannotBeUnoptimized, r) {
         }
     )");
     std::string dump = effect.trace({1, 1});
-    constexpr char kExpectation[] = R"($0 = [main].result (float4 : slot 1/4, L2)
-$1 = [main].result (float4 : slot 2/4, L2)
-$2 = [main].result (float4 : slot 3/4, L2)
-$3 = [main].result (float4 : slot 4/4, L2)
-$4 = p (float2 : slot 1/2, L2)
-$5 = p (float2 : slot 2/2, L2)
+    static constexpr char kSkRPSlotDump[] =
+R"($0 = p (float2 : slot 1/2, L0)
+$1 = p (float2 : slot 2/2, L0)
+$2 = [main].result (float4 : slot 1/4, L0)
+$3 = [main].result (float4 : slot 2/4, L0)
+$4 = [main].result (float4 : slot 3/4, L0)
+$5 = [main].result (float4 : slot 4/4, L0)
 F0 = half4 main(float2 p)
-
+)";
+    static constexpr char kExpectedTrace[] = R"(
 enter half4 main(float2 p)
   p.x = 1.5
   p.y = 1.5
@@ -1021,9 +1052,10 @@ enter half4 main(float2 p)
   scope -1
 exit half4 main(float2 p)
 )";
-    REPORTER_ASSERT(r, dump == kExpectation,
-                    "Trace output does not match expectation:\n%.*s\n",
-                    (int)dump.size(), dump.data());
+    REPORTER_ASSERT(
+            r,
+            skstd::starts_with(dump, kSkRPSlotDump) && skstd::ends_with(dump, kExpectedTrace),
+            "Trace output does not match expectation:\n%.*s\n", (int)dump.size(), dump.data());
 }
 
 static void test_RuntimeEffect_Blenders(skiatest::Reporter* r,
@@ -1034,6 +1066,10 @@ static void test_RuntimeEffect_Blenders(skiatest::Reporter* r,
     using float2 = std::array<float, 2>;
     using float4 = std::array<float, 4>;
     using int4 = std::array<int, 4>;
+
+    SkPaint rgbwPaint;
+    rgbwPaint.setShader(make_RGBW_shader());
+    rgbwPaint.setBlendMode(SkBlendMode::kSrc);
 
     // Use of a simple uniform. (Draw twice with two values to ensure it's updated).
     effect.build("uniform float4 gColor; half4 main(half4 s, half4 d) { return half4(gColor); }");
@@ -1060,9 +1096,6 @@ static void test_RuntimeEffect_Blenders(skiatest::Reporter* r,
     effect.test(0xFF888888);
 
     // Fill the destination with a variety of colors (using the RGBW shader)
-    SkPaint rgbwPaint;
-    rgbwPaint.setShader(make_RGBW_shader());
-    rgbwPaint.setBlendMode(SkBlendMode::kSrc);
     effect.surface()->getCanvas()->drawPaint(rgbwPaint);
 
     // Verify that we can read back the dest color exactly as-is (ignoring the source color)
@@ -1085,11 +1118,11 @@ static void test_RuntimeEffect_Blenders(skiatest::Reporter* r,
     // Sampling children
     //
 
-    // Sampling a null shader/color filter should return the paint color.
+    // Sampling a null shader should return transparent black.
     effect.build("uniform shader child;"
                  "half4 main(half4 s, half4 d) { return child.eval(s.rg); }");
     effect.child("child") = nullptr;
-    effect.test(0xFF00FFFF,
+    effect.test(0x00000000,
                 [](SkCanvas*, SkPaint* paint) { paint->setColor4f({1.0f, 1.0f, 0.0f, 1.0f}); });
 
     effect.build("uniform colorFilter child;"
@@ -1110,6 +1143,25 @@ static void test_RuntimeEffect_Blenders(skiatest::Reporter* r,
     effect.build("uniform shader child;"
                  "uniform half2 pos;"
                  "half4 main(half4 s, half4 d) { return child.eval(pos); }");
+    effect.child("child") = make_RGBW_shader();
+    effect.uniform("pos") = float2{0.5, 0.5};
+    effect.test(0xFF0000FF);
+
+    effect.uniform("pos") = float2{1.5, 0.5};
+    effect.test(0xFF00FF00);
+
+    effect.uniform("pos") = float2{0.5, 1.5};
+    effect.test(0xFFFF0000);
+
+    effect.uniform("pos") = float2{1.5, 1.5};
+    effect.test(0xFFFFFFFF);
+
+    // Sampling a shader as above, but via a helper function
+    effect.build("uniform shader child;"
+                 "uniform half2 pos;"
+                 "half4 eval_at_pos(shader x) { return x.eval(pos); }"
+                 "half4 main(half4 s, half4 d) { return eval_at_pos(child); }",
+                 /*allowPrivateAccess=*/true);
     effect.child("child") = make_RGBW_shader();
     effect.uniform("pos") = float2{0.5, 0.5};
     effect.test(0xFF0000FF);
@@ -1310,9 +1362,10 @@ static void test_RuntimeEffectStructNameReuse(skiatest::Reporter* r, GrRecording
         "half4 main(float2 p) { S s; s.rgba = paint.eval(p); process(s); return s.rgba; }"
     ));
     REPORTER_ASSERT(r, childEffect, "%s\n", err.c_str());
-    sk_sp<SkShader> nullChild = nullptr;
+    sk_sp<SkShader> sourceColor = SkShaders::Color({0.99608f, 0.50196f, 0.0f, 1.0f}, nullptr);
+    const GrColor kExpected = 0xFF00407F;
     sk_sp<SkShader> child = childEffect->makeShader(/*uniforms=*/nullptr,
-                                                    &nullChild,
+                                                    &sourceColor,
                                                     /*childCount=*/1);
 
     TestEffect effect(r, /*grContext=*/nullptr, /*graphite=*/nullptr);
@@ -1323,9 +1376,7 @@ static void test_RuntimeEffectStructNameReuse(skiatest::Reporter* r, GrRecording
             "half4 main(float2 p) { S s; s.coord = p; process(s); return child.eval(s.coord); "
             "}");
     effect.child("child") = child;
-    effect.test(0xFF00407F, [](SkCanvas*, SkPaint* paint) {
-        paint->setColor4f({0.99608f, 0.50196f, 0.0f, 1.0f});
-    });
+    effect.test(kExpected, [](SkCanvas*, SkPaint* paint) {});
 }
 
 DEF_TEST(SkRuntimeStructNameReuse, r) {
@@ -1340,21 +1391,68 @@ DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(SkRuntimeStructNameReuse_GPU,
 }
 
 DEF_TEST(SkRuntimeColorFilterFlags, r) {
-    {   // Here's a non-trivial filter that doesn't change alpha.
-        auto [effect, err] = SkRuntimeEffect::MakeForColorFilter(SkString{
-                "half4 main(half4 color) { return color + half4(1,1,1,0); }"});
-        REPORTER_ASSERT(r, effect && err.isEmpty());
+    auto expectAlphaUnchanged = [&](const char* shader) {
+        auto [effect, err] = SkRuntimeEffect::MakeForColorFilter(SkString{shader});
+        REPORTER_ASSERT(r, effect && err.isEmpty(), "%s", shader);
         sk_sp<SkColorFilter> filter = effect->makeColorFilter(SkData::MakeEmpty());
-        REPORTER_ASSERT(r, filter && filter->isAlphaUnchanged());
-    }
+        REPORTER_ASSERT(r, filter && filter->isAlphaUnchanged(), "%s", shader);
+    };
 
-    {  // Here's one that definitely changes alpha.
-        auto [effect, err] = SkRuntimeEffect::MakeForColorFilter(SkString{
-                "half4 main(half4 color) { return color + half4(0,0,0,4); }"});
-        REPORTER_ASSERT(r, effect && err.isEmpty());
+    auto expectAlphaChanged = [&](const char* shader) {
+        auto [effect, err] = SkRuntimeEffect::MakeForColorFilter(SkString{shader});
+        REPORTER_ASSERT(r, effect && err.isEmpty(), "%s", shader);
         sk_sp<SkColorFilter> filter = effect->makeColorFilter(SkData::MakeEmpty());
-        REPORTER_ASSERT(r, filter && !filter->isAlphaUnchanged());
-    }
+        REPORTER_ASSERT(r, filter && !filter->isAlphaUnchanged(), "%s", shader);
+    };
+
+    // We expect these patterns to be detected as alpha-unchanged.
+    expectAlphaUnchanged("half4 main(half4 color) { return color; }");
+    expectAlphaUnchanged("half4 main(half4 color) { return color.aaaa; }");
+    expectAlphaUnchanged("half4 main(half4 color) { return color.bgra; }");
+    expectAlphaUnchanged("half4 main(half4 color) { return color.rraa; }");
+    expectAlphaUnchanged("half4 main(half4 color) { return color.010a; }");
+    expectAlphaUnchanged("half4 main(half4 color) { return half4(0, 0, 0, color.a); }");
+    expectAlphaUnchanged("half4 main(half4 color) { return half4(half2(1), color.ba); }");
+    expectAlphaUnchanged("half4 main(half4 color) { return half4(half2(1), half2(color.a)); }");
+    expectAlphaUnchanged("half4 main(half4 color) { return half4(color.a); }");
+    expectAlphaUnchanged("half4 main(half4 color) { return half4(float4(color.baba)); }");
+    expectAlphaUnchanged("half4 main(half4 color) { return color.r != color.g ? color :"
+                                                                              " color.000a; }");
+    expectAlphaUnchanged("half4 main(half4 color) { return color.a == color.r ? color.rrra : "
+                                                          "color.g == color.b ? color.ggga : "
+                                                                            "   color.bbba; }");
+    // Modifying the input color invalidates the check.
+    expectAlphaChanged("half4 main(half4 color) { color.a = 0; return color; }");
+
+    // These swizzles don't end in alpha.
+    expectAlphaChanged("half4 main(half4 color) { return color.argb; }");
+    expectAlphaChanged("half4 main(half4 color) { return color.rrrr; }");
+
+    // This compound constructor doesn't end in alpha.
+    expectAlphaChanged("half4 main(half4 color) { return half4(1, 1, 1, color.r); }");
+
+    // This splat constructor doesn't use alpha.
+    expectAlphaChanged("half4 main(half4 color) { return half4(color.r); }");
+
+    // These ternaries don't return alpha on both sides
+    expectAlphaChanged("half4 main(half4 color) { return color.a > 0 ? half4(0) : color; }");
+    expectAlphaChanged("half4 main(half4 color) { return color.g < 1 ? color.bgra : color.abgr; }");
+    expectAlphaChanged("half4 main(half4 color) { return color.b > 0.5 ? half4(0) : half4(1); }");
+
+    // Performing arithmetic on the input causes it to report as "alpha changed" even if the
+    // arithmetic is a no-op; we aren't smart enough to see through it.
+    expectAlphaChanged("half4 main(half4 color) { return color + half4(1,1,1,0); }");
+    expectAlphaChanged("half4 main(half4 color) { return color + half4(0,0,0,4); }");
+
+    // All exit paths are checked.
+    expectAlphaChanged("half4 main(half4 color) { "
+                       "    if (color.r > 0.5) { return color; }"
+                       "    return half4(0);"
+                       "}");
+    expectAlphaChanged("half4 main(half4 color) { "
+                       "    if (color.r > 0.5) { return half4(0); }"
+                       "    return color;"
+                       "}");
 }
 
 DEF_TEST(SkRuntimeShaderSampleCoords, r) {
@@ -1499,7 +1597,7 @@ DEF_TEST(SkRuntimeShaderIsOpaque, r) {
 DEF_GANESH_TEST_FOR_ALL_CONTEXTS(GrSkSLFP_Specialized, r, ctxInfo, CtsEnforcement::kApiLevel_T) {
     struct FpAndKey {
         std::unique_ptr<GrFragmentProcessor> fp;
-        SkTArray<uint32_t, true>             key;
+        TArray<uint32_t, true>             key;
     };
 
     // Constant color, but with an 'specialize' option that decides if the color is inserted in the
@@ -1539,7 +1637,7 @@ DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(GrSkSLFP_UniformArray,
     // Make a fill-context to draw into.
     GrDirectContext* directContext = ctxInfo.directContext();
     SkImageInfo info = SkImageInfo::Make(1, 1, kRGBA_8888_SkColorType, kPremul_SkAlphaType);
-    std::unique_ptr<skgpu::v1::SurfaceFillContext> testCtx =
+    std::unique_ptr<skgpu::ganesh::SurfaceFillContext> testCtx =
             directContext->priv().makeSFC(info, /*label=*/{}, SkBackingFit::kExact);
 
     // Make an effect that takes a uniform array as input.

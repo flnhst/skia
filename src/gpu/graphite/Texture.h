@@ -14,7 +14,9 @@
 #include "src/gpu/graphite/ResourceTypes.h"
 
 namespace skgpu {
+class MutableTextureState;
 class RefCntedCallback;
+enum class Budgeted : bool;
 };
 
 namespace skgpu::graphite {
@@ -31,19 +33,31 @@ public:
 
     void setReleaseCallback(sk_sp<RefCntedCallback>);
 
+    const char* getResourceType() const override { return "Texture"; }
+
+    const Texture* asTexture() const override { return this; }
+
 protected:
     Texture(const SharedContext*,
             SkISize dimensions,
             const TextureInfo& info,
-            Ownership,
-            SkBudgeted);
+            sk_sp<MutableTextureState> mutableState,
+            Ownership);
+
+    MutableTextureState* mutableState() const;
+
+    void invokeReleaseProc() override;
+
+    void onDumpMemoryStatistics(SkTraceMemoryDump* traceMemoryDump,
+                                const char* dumpName) const override;
 
 private:
     SkISize fDimensions;
     TextureInfo fInfo;
+    sk_sp<MutableTextureState> fMutableState;
     sk_sp<RefCntedCallback> fReleaseCallback;
 };
 
-} // namepsace skgpu::graphite
+} // namespace skgpu::graphite
 
 #endif // skgpu_graphite_Texture_DEFINED

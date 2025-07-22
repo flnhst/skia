@@ -11,8 +11,9 @@
 #include "include/core/SkImageInfo.h"
 #include "include/core/SkSurfaceProps.h"
 #include "include/core/SkTypes.h"
-#include "include/gpu/GrDirectContext.h"
+#include "include/gpu/ganesh/GrDirectContext.h"
 #include "include/private/gpu/ganesh/GrTypesPriv.h"
+#include "src/gpu/SkBackingFit.h"
 #include "src/gpu/ganesh/GrDirectContextPriv.h"
 #include "src/gpu/ganesh/GrPixmap.h"
 #include "src/gpu/ganesh/GrRenderTargetProxy.h"
@@ -28,14 +29,18 @@ struct GrContextOptions;
 
 static const int kSize = 64;
 
-static std::unique_ptr<skgpu::v1::SurfaceDrawContext> get_sdc(GrRecordingContext* rContext) {
-    return skgpu::v1::SurfaceDrawContext::Make(rContext, GrColorType::kRGBA_8888, nullptr,
-                                               SkBackingFit::kExact, {kSize, kSize},
-                                               SkSurfaceProps(), /*label=*/{});
+static std::unique_ptr<skgpu::ganesh::SurfaceDrawContext> get_sdc(GrRecordingContext* rContext) {
+    return skgpu::ganesh::SurfaceDrawContext::Make(rContext,
+                                                   GrColorType::kRGBA_8888,
+                                                   nullptr,
+                                                   SkBackingFit::kExact,
+                                                   {kSize, kSize},
+                                                   SkSurfaceProps(),
+                                                   /*label=*/{});
 }
 
 static void check_instantiation_status(skiatest::Reporter* reporter,
-                                       skgpu::v1::SurfaceDrawContext* sdc,
+                                       skgpu::ganesh::SurfaceDrawContext* sdc,
                                        bool wrappedExpectation) {
     REPORTER_ASSERT(reporter, sdc->asRenderTargetProxy()->isInstantiated() == wrappedExpectation);
 

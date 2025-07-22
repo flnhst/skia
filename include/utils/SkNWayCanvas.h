@@ -16,7 +16,7 @@
 #include "include/core/SkSamplingOptions.h"
 #include "include/core/SkScalar.h"
 #include "include/core/SkTypes.h"
-#include "include/private/SkTDArray.h"
+#include "include/private/base/SkTDArray.h"
 #include "include/utils/SkNoDrawCanvas.h"
 
 #include <cstddef>
@@ -45,11 +45,7 @@ struct SkPoint;
 struct SkRSXform;
 struct SkRect;
 
-#if SK_SUPPORT_GPU
-namespace sktext::gpu {
-class Slug;
-}
-#endif
+namespace sktext::gpu { class Slug; }
 
 class SK_API SkNWayCanvas : public SkCanvasVirtualEnforcer<SkNoDrawCanvas> {
 public:
@@ -77,9 +73,7 @@ protected:
     void onDrawGlyphRunList(const sktext::GlyphRunList&, const SkPaint&) override;
     void onDrawTextBlob(const SkTextBlob* blob, SkScalar x, SkScalar y,
                         const SkPaint& paint) override;
-#if SK_SUPPORT_GPU
-    void onDrawSlug(const sktext::gpu::Slug* slug) override;
-#endif
+    void onDrawSlug(const sktext::gpu::Slug* slug, const SkPaint& paint) override;
     void onDrawPatch(const SkPoint cubics[12], const SkColor colors[4],
                      const SkPoint texCoords[4], SkBlendMode, const SkPaint& paint) override;
 
@@ -120,11 +114,7 @@ protected:
                           SkBlendMode) override;
     void onDrawEdgeAAImageSet2(const ImageSetEntry[], int count, const SkPoint[], const SkMatrix[],
                                const SkSamplingOptions&,const SkPaint*, SrcRectConstraint) override;
-
-    void onFlush() override;
-
     class Iter;
-
 private:
     using INHERITED = SkCanvasVirtualEnforcer<SkNoDrawCanvas>;
 };

@@ -8,7 +8,7 @@ import re
 from . import util
 
 def compile_fn(api, checkout_root, out_dir):
-  skia_dir      = checkout_root.join('skia')
+  skia_dir      = checkout_root.joinpath('skia')
   compiler      = api.vars.builder_cfg.get('compiler')
   configuration = api.vars.builder_cfg.get('configuration')
   extra_tokens  = api.vars.extra_tokens
@@ -33,19 +33,24 @@ def compile_fn(api, checkout_root, out_dir):
 
   quote = lambda x: '"%s"' % x
   args = {
-      'ndk': quote(api.vars.workdir.join(ndk_path)),
+      'ndk': quote(api.vars.workdir.joinpath(ndk_path)),
       'target_cpu': quote(target_arch),
       'werror': 'true',
   }
+  env = {}
   extra_cflags.append('-DREBUILD_IF_CHANGED_ndk_version=%s' %
                       api.run.asset_version(ndk_asset, skia_dir))
 
   if configuration != 'Debug':
     args['is_debug'] = 'false'
-  if 'Vulkan' in extra_tokens:
+  if 'Dawn' in extra_tokens:
+    util.set_dawn_args_and_env(args, env, api, extra_tokens, skia_dir)
+    args['ndk_api'] = 26 #skia_use_gl=false, so use vulkan
+  if 'Vulkan' in extra_tokens and not 'Dawn' in extra_tokens:
     args['ndk_api'] = 26
     args['skia_enable_vulkan_debug_layers'] = 'false'
     args['skia_use_gl'] = 'false'
+    args['skia_use_vulkan'] = 'true'
   if 'ASAN' in extra_tokens:
     args['sanitize'] = '"ASAN"'
   if 'Graphite' in extra_tokens:
@@ -61,6 +66,7 @@ def compile_fn(api, checkout_root, out_dir):
     args.update({
       'skia_use_runtime_icu': 'true',
       'skia_enable_optimize_size': 'true',
+      'skia_use_jpeg_gainmaps': 'false',
     })
 
   # The 'FrameworkWorkarounds' bot is used to test special behavior that's
@@ -81,22 +87,26 @@ def compile_fn(api, checkout_root, out_dir):
     args['extra_ldflags'] = repr(extra_ldflags).replace("'", '"')
 
   gn_args = ' '.join('%s=%s' % (k,v) for (k,v) in sorted(args.items()))
-  gn      = skia_dir.join('bin', 'gn')
+  gn      = skia_dir.joinpath('bin', 'gn')
 
   with api.context(cwd=skia_dir):
-    api.run(api.python, 'fetch-gn',
-            script=skia_dir.join('bin', 'fetch-gn'),
+    api.run(api.step, 'fetch-gn',
+            cmd=['python3', skia_dir.joinpath('bin', 'fetch-gn')],
             infra_step=True)
 
-    api.run(api.step, 'gn gen',
-            cmd=[gn, 'gen', out_dir, '--args=' + gn_args])
-    api.run(api.step, 'ninja', cmd=['ninja', '-C', out_dir])
+    api.run(api.step, 'fetch-ninja',
+            cmd=['python3', skia_dir.joinpath('bin', 'fetch-ninja')],
+            infra_step=True)
+
+    with api.env(env):
+      api.run(api.step, 'gn gen',
+              cmd=[gn, 'gen', out_dir, '--args=' + gn_args])
+      api.run(api.step, 'ninja', cmd=['ninja', '-C', out_dir])
 
 
 ANDROID_BUILD_PRODUCTS_LIST = [
   'dm',
   'nanobench',
-  'skpbench',
   # The following only exists when building for OptimizeForSize
   # This is the only target we currently measure: skbug.com/13657
   'skottie_tool_gpu',

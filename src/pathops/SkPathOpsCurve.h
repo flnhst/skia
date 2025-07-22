@@ -11,6 +11,7 @@
 #include "include/core/SkPoint.h"
 #include "include/core/SkScalar.h"
 #include "include/core/SkTypes.h"
+#include "include/private/base/SkDebug.h"
 #include "src/pathops/SkIntersections.h"
 #include "src/pathops/SkPathOpsConic.h"
 #include "src/pathops/SkPathOpsCubic.h"
@@ -24,7 +25,7 @@ struct SkPathOpsBounds;
 struct SkOpCurve {
     SkPoint fPts[4];
     SkScalar fWeight;
-    SkDEBUGCODE(SkPath::Verb fVerb);
+    SkDEBUGCODE(SkPath::Verb fVerb;)
 
     const SkPoint& operator[](int n) const {
         SkASSERT(n >= 0 && n <= SkPathOpsVerbToPoints(fVerb));
@@ -58,7 +59,7 @@ struct SkDCurve {
         SkDConic fConic;
         SkDCubic fCubic;
     };
-    SkDEBUGCODE(SkPath::Verb fVerb);
+    SkDEBUGCODE(SkPath::Verb fVerb;)
 
     const SkDPoint& operator[](int n) const {
         SkASSERT(n >= 0 && n <= SkPathOpsVerbToPoints(fVerb));

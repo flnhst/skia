@@ -19,10 +19,12 @@
 #include "include/core/SkTileMode.h"
 #include "include/core/SkTypes.h"
 #include "include/effects/SkGradientShader.h"
-#include "include/gpu/GrDirectContext.h"
+#include "include/gpu/GpuTypes.h"
+#include "include/gpu/ganesh/GrDirectContext.h"
+#include "include/gpu/ganesh/SkSurfaceGanesh.h"
 #include "tests/CtsEnforcement.h"
 #include "tests/Test.h"
-#include "tools/Resources.h"
+#include "tools/DecodeUtils.h"
 
 #include <cstdint>
 #include <utility>
@@ -54,7 +56,7 @@ DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(TextureStripAtlasManagerGradientTest,
                                                       SkTileMode::kClamp));
 
     SkImageInfo info = SkImageInfo::MakeN32Premul(128, 128);
-    auto surface(SkSurface::MakeRenderTarget(context, SkBudgeted::kNo, info));
+    auto surface(SkSurfaces::RenderTarget(context, skgpu::Budgeted::kNo, info));
     SkCanvas* canvas = surface->getCanvas();
 
     SkRect r = SkRect::MakeXYWH(10, 10, 100, 100);
@@ -71,8 +73,7 @@ DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(TextureStripAtlasManagerColorFilterTest,
                                        CtsEnforcement::kApiLevel_T) {
     auto context = ctxInfo.directContext();
 
-    sk_sp<SkImage> img = GetResourceAsImage("images/mandrill_128.png");
-
+    sk_sp<SkImage> img = ToolUtils::GetResourceAsImage("images/mandrill_128.png");
 
     uint8_t identity[256];
     for (int i = 0; i < 256; i++) {
@@ -83,7 +84,7 @@ DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(TextureStripAtlasManagerColorFilterTest,
     p.setColorFilter(SkColorFilters::Table(identity));
 
     SkImageInfo info = SkImageInfo::MakeN32Premul(128, 128);
-    auto surface(SkSurface::MakeRenderTarget(context, SkBudgeted::kNo, info));
+    auto surface(SkSurfaces::RenderTarget(context, skgpu::Budgeted::kNo, info));
     SkCanvas* canvas = surface->getCanvas();
 
     canvas->drawImage(std::move(img), 0, 0, SkSamplingOptions(), &p);

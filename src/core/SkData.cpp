@@ -6,13 +6,15 @@
  */
 
 #include "include/core/SkData.h"
-#include "include/core/SkStream.h"
-#include "include/private/SkOnce.h"
-#include "src/core/SkOSFile.h"
-#include "src/core/SkReadBuffer.h"
-#include "src/core/SkStreamPriv.h"
-#include "src/core/SkWriteBuffer.h"
 
+#include "include/core/SkStream.h"
+#include "include/private/base/SkAssert.h"
+#include "include/private/base/SkMalloc.h"
+#include "include/private/base/SkOnce.h"
+#include "src/core/SkOSFile.h"
+#include "src/core/SkStreamPriv.h"
+
+#include <cstring>
 #include <new>
 
 SkData::SkData(const void* ptr, size_t size, ReleaseProc proc, void* context)
@@ -99,7 +101,7 @@ sk_sp<SkData> SkData::MakeEmpty() {
 
 // assumes fPtr was allocated via sk_malloc
 static void sk_free_releaseproc(const void* ptr, void*) {
-    sk_free((void*)ptr);
+    sk_free(const_cast<void*>(ptr));
 }
 
 sk_sp<SkData> SkData::MakeFromMalloc(const void* data, size_t length) {

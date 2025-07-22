@@ -9,8 +9,11 @@
 #define skgpu_VulkanMemoryAllocator_DEFINED
 
 #include "include/core/SkRefCnt.h"
-#include "include/gpu/GpuTypes.h"
 #include "include/gpu/vk/VulkanTypes.h"
+#include "include/private/gpu/vk/SkiaVulkan.h"
+
+#include <cstdint>
+#include <utility>
 
 namespace skgpu {
 
@@ -35,7 +38,7 @@ public:
     };
 
     enum class BufferUsage {
-        // Buffers that will only be accessed from the device (large const buffers). Will always be
+        // Buffers that will only be accessed from the device (large const buffers) will always be
         // in device local memory.
         kGpuOnly,
         // Buffers that typically will be updated multiple times by the host and read on the gpu
@@ -103,12 +106,10 @@ public:
 
     virtual void freeMemory(const skgpu::VulkanBackendMemory&) = 0;
 
-    // Returns the total amount of memory that is allocated and in use by an allocation for this
-    // allocator.
-    virtual uint64_t totalUsedMemory() const = 0;
-
-    // Returns the total amount of memory that is allocated by this allocator.
-    virtual uint64_t totalAllocatedMemory() const = 0;
+    // Returns the total amount of memory that is allocated as well as total
+    // amount of memory in use by an allocation from this allocator.
+    // Return 1st param is total allocated memory, 2nd is total used memory.
+    virtual std::pair<uint64_t, uint64_t> totalAllocatedAndUsedMemory() const = 0;
 };
 
 } // namespace skgpu

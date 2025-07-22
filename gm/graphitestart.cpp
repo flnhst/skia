@@ -12,10 +12,13 @@
 #include "include/core/SkColorSpace.h"
 #include "include/core/SkImage.h"
 #include "include/core/SkPaint.h"
+#include "include/core/SkPath.h"
 #include "include/core/SkRRect.h"
 #include "include/effects/SkGradientShader.h"
-#include "include/gpu/GrRecordingContext.h"
+#include "include/gpu/ganesh/GrRecordingContext.h"
 #include "src/core/SkColorFilterPriv.h"
+#include "tools/DecodeUtils.h"
+#include "tools/GpuToolUtils.h"
 #include "tools/Resources.h"
 #include "tools/ToolUtils.h"
 
@@ -58,7 +61,7 @@ sk_sp<SkShader> create_image_shader(SkCanvas* destCanvas, SkTileMode tmX, SkTile
         bitmap.setImmutable();
     }
 
-    sk_sp<SkImage> img = SkImage::MakeFromBitmap(bitmap);
+    sk_sp<SkImage> img = SkImages::RasterFromBitmap(bitmap);
     img = ToolUtils::MakeTextureImage(destCanvas, std::move(img));
     if (img) {
         return img->makeShader(tmX, tmY, SkSamplingOptions());
@@ -180,6 +183,9 @@ void draw_colorfilter_swatches(SkCanvas* canvas, SkRect clipRect) {
     colorFilters[3] = SkColorFilters::Blend(SK_ColorGREEN, SkBlendMode::kMultiply);
     colorFilters[4] = SkColorFilterPriv::MakeGaussian();
 
+    colorFilters[5] = SkColorFilters::LinearToSRGBGamma();
+    colorFilters[6] = SkColorFilters::SRGBToLinearGamma();
+
     SkPaint p;
 
     canvas->save();
@@ -249,25 +255,23 @@ namespace skiagm {
 // This is just for bootstrapping Graphite.
 class GraphiteStartGM : public GM {
 public:
-    GraphiteStartGM() {
-        this->setBGColor(SK_ColorBLACK);
-        GetResourceAsBitmap("images/color_wheel.gif", &fBitmap);
-    }
+    GraphiteStartGM() = default;
 
 protected:
     static constexpr int kTileWidth = 128;
     static constexpr int kTileHeight = 128;
     static constexpr int kWidth = 3 * kTileWidth;
     static constexpr int kHeight = 3 * kTileHeight;
-    static constexpr int kClipInset = 16;
+    static constexpr int kClipInset = 4;
 
-    SkString onShortName() override {
-        return SkString("graphitestart");
+    void onOnceBeforeDraw() override {
+        this->setBGColor(SK_ColorBLACK);
+        ToolUtils::GetResourceAsBitmap("images/color_wheel.gif", &fBitmap);
     }
 
-    SkISize onISize() override {
-        return SkISize::Make(kWidth, kHeight);
-    }
+    SkString getName() const override { return SkString("graphitestart"); }
+
+    SkISize getISize() override { return SkISize::Make(kWidth, kHeight); }
 
     void onDraw(SkCanvas* canvas) override {
 
@@ -306,7 +310,7 @@ protected:
 
         // Middle-right tile
         {
-            sk_sp<SkImage> image(GetResourceAsImage("images/mandrill_128.png"));
+            sk_sp<SkImage> image(ToolUtils::GetResourceAsImage("images/mandrill_128.png"));
             sk_sp<SkShader> shader;
 
             if (image) {
@@ -324,7 +328,7 @@ protected:
         canvas->restore();
 
         // Bottom-left corner
-#ifdef SK_GRAPHITE_ENABLED
+#if defined(SK_GRAPHITE)
         // TODO: failing serialize test on Linux, not sure what's going on
         canvas->writePixels(fBitmap, 0, 2*kTileHeight);
 #endif

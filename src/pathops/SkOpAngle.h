@@ -9,6 +9,7 @@
 
 #include "include/core/SkPath.h"
 #include "include/core/SkTypes.h"
+#include "include/private/base/SkDebug.h"
 #include "src/pathops/SkLineParameters.h"
 #include "src/pathops/SkPathOpsCurve.h"
 #include "src/pathops/SkPathOpsTypes.h"
@@ -145,7 +146,7 @@ private:
     bool fComputedSector;
     bool fCheckCoincidence;
     bool fTangentsAmbiguous;
-    SkDEBUGCODE(int fID);
+    SkDEBUGCODE(int fID;)
 
     friend class PathOpsAngleTester;
 };

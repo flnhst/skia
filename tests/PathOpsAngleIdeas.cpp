@@ -7,10 +7,11 @@
 #include "include/core/SkPoint.h"
 #include "include/core/SkScalar.h"
 #include "include/core/SkTypes.h"
-#include "include/private/SkTArray.h"
-#include "include/utils/SkRandom.h"
-#include "src/core/SkArenaAlloc.h"
-#include "src/core/SkTSort.h"
+#include "include/private/base/SkDebug.h"
+#include "include/private/base/SkTArray.h"
+#include "src/base/SkArenaAlloc.h"
+#include "src/base/SkRandom.h"
+#include "src/base/SkTSort.h"
 #include "src/pathops/SkIntersections.h"
 #include "src/pathops/SkOpAngle.h"
 #include "src/pathops/SkOpContour.h"
@@ -27,6 +28,8 @@
 #include <array>
 #include <cfloat>
 #include <cmath>
+
+using namespace skia_private;
 
 static bool gPathOpsAngleIdeasVerbose = false;
 static bool gPathOpsAngleIdeasEnableBruteCheck = false;
@@ -87,7 +90,7 @@ static double testArc(skiatest::Reporter* reporter, const SkDQuad& quad, const S
 }
 
 static void orderQuads(skiatest::Reporter* reporter, const SkDQuad& quad, double radius,
-        SkTArray<double, false>* tArray) {
+        TArray<double, false>* tArray) {
     double r = radius;
     double s = r * SK_ScalarTanPIOver8;
     double m = r * SK_ScalarRoot2Over2;
@@ -107,7 +110,7 @@ static void orderQuads(skiatest::Reporter* reporter, const SkDQuad& quad, double
         if (t < 0) {
             continue;
         }
-        for (int index = 0; index < tArray->count(); ++index) {
+        for (int index = 0; index < tArray->size(); ++index) {
             double matchT = (*tArray)[index];
             if (approximately_equal(t, matchT)) {
                 goto next;
@@ -242,10 +245,10 @@ static bool radianBetween(double start, double test, double end) {
 
 static bool orderTRange(skiatest::Reporter* reporter, const SkDQuad& quad1, const SkDQuad& quad2,
         double r, TRange* result) {
-    SkTArray<double, false> t1Array, t2Array;
+    TArray<double, false> t1Array, t2Array;
     orderQuads(reporter, quad1, r, &t1Array);
     orderQuads(reporter,quad2, r, &t2Array);
-    if (!t1Array.count() || !t2Array.count()) {
+    if (t1Array.empty() || t2Array.empty()) {
         return false;
     }
     SkTQSort<double>(t1Array.begin(), t1Array.end());

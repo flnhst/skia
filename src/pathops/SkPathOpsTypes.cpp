@@ -6,11 +6,14 @@
  */
 #include "src/pathops/SkPathOpsTypes.h"
 
-#include "include/private/SkFloatBits.h"
-#include "include/private/SkFloatingPoint.h"
+#include "include/private/base/SkFloatingPoint.h"
+#include "include/private/base/SkMath.h"
+#include "include/private/base/SkTemplates.h"
+#include "src/base/SkFloatBits.h"
 
 #include <algorithm>
 #include <cstdint>
+#include <cstring>
 
 static bool arguments_denormalized(float a, float b, int epsilon) {
     float denormalizedCheck = FLT_EPSILON * epsilon / 2;
@@ -37,7 +40,7 @@ static bool equal_ulps_no_normal_check(float a, float b, int epsilon, int depsil
 }
 
 static bool equal_ulps_pin(float a, float b, int epsilon, int depsilon) {
-    if (!SkScalarIsFinite(a) || !SkScalarIsFinite(b)) {
+    if (!SkIsFinite(a, b)) {
         return false;
     }
     if (arguments_denormalized(a, b, depsilon)) {
@@ -67,7 +70,7 @@ static bool not_equal_ulps(float a, float b, int epsilon) {
 }
 
 static bool not_equal_ulps_pin(float a, float b, int epsilon) {
-    if (!SkScalarIsFinite(a) || !SkScalarIsFinite(b)) {
+    if (!SkIsFinite(a, b)) {
         return false;
     }
     if (arguments_denormalized(a, b, epsilon)) {
@@ -185,53 +188,16 @@ bool AlmostLessOrEqualUlps(float a, float b) {
 }
 
 int UlpsDistance(float a, float b) {
-    SkFloatIntUnion floatIntA, floatIntB;
-    floatIntA.fFloat = a;
-    floatIntB.fFloat = b;
+    int32_t floatIntA, floatIntB;
+    memcpy(&floatIntA, &a, sizeof(int32_t));
+    memcpy(&floatIntB, &b, sizeof(int32_t));
     // Different signs means they do not match.
-    if ((floatIntA.fSignBitInt < 0) != (floatIntB.fSignBitInt < 0)) {
+    if ((floatIntA < 0) != (floatIntB < 0)) {
         // Check for equality to make sure +0 == -0
         return a == b ? 0 : SK_MaxS32;
     }
     // Find the difference in ULPs.
-    return SkTAbs(floatIntA.fSignBitInt - floatIntB.fSignBitInt);
-}
-
-// cube root approximation using bit hack for 64-bit float
-// adapted from Kahan's cbrt
-static double cbrt_5d(double d) {
-    const unsigned int B1 = 715094163;
-    double t = 0.0;
-    unsigned int* pt = (unsigned int*) &t;
-    unsigned int* px = (unsigned int*) &d;
-    pt[1] = px[1] / 3 + B1;
-    return t;
-}
-
-// iterative cube root approximation using Halley's method (double)
-static double cbrta_halleyd(const double a, const double R) {
-    const double a3 = a * a * a;
-    const double b = a * (a3 + R + R) / (a3 + a3 + R);
-    return b;
-}
-
-// cube root approximation using 3 iterations of Halley's method (double)
-static double halley_cbrt3d(double d) {
-    double a = cbrt_5d(d);
-    a = cbrta_halleyd(a, d);
-    a = cbrta_halleyd(a, d);
-    return cbrta_halleyd(a, d);
-}
-
-double SkDCubeRoot(double x) {
-    if (approximately_zero_cubed(x)) {
-        return 0;
-    }
-    double result = halley_cbrt3d(fabs(x));
-    if (x < 0) {
-        result = -result;
-    }
-    return result;
+    return SkTAbs(floatIntA - floatIntB);
 }
 
 SkOpGlobalState::SkOpGlobalState(SkOpContourHead* head,

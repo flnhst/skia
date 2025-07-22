@@ -8,19 +8,28 @@
 #ifndef SmallPathAtlasMgr_DEFINED
 #define SmallPathAtlasMgr_DEFINED
 
+#include "include/core/SkTypes.h"
+
 #if !defined(SK_ENABLE_OPTIMIZE_SIZE)
 
+#include "src/base/SkTInternalLList.h"
 #include "src/core/SkTDynamicHash.h"
-#include "src/core/SkTInternalLList.h"
+#include "src/gpu/AtlasTypes.h"
 #include "src/gpu/ganesh/GrDrawOpAtlas.h"
 #include "src/gpu/ganesh/GrOnFlushResourceProvider.h"
+#include "src/gpu/ganesh/ops/SmallPathShapeData.h"
 
+#include <memory>
+
+class GrCaps;
+class GrDeferredUploadTarget;
+class GrProxyProvider;
+class GrResourceProvider;
 class GrStyledShape;
+class GrSurfaceProxyView;
+class SkMatrix;
 
-namespace skgpu::v1 {
-
-class SmallPathShapeData;
-class SmallPathShapeDataKey;
+namespace skgpu::ganesh {
 
 /**
  * This class manages the small path renderer's atlas. It solely operates at flush time. Thus
@@ -49,11 +58,11 @@ public:
                                         int width, int height, const void* image,
                                         skgpu::AtlasLocator*);
 
-    void setUseToken(SmallPathShapeData*, skgpu::DrawToken);
+    void setUseToken(SmallPathShapeData*, skgpu::AtlasToken);
 
     // GrOnFlushCallbackObject overrides
     bool preFlush(GrOnFlushResourceProvider* onFlushRP) override {
-#if GR_TEST_UTILS
+#if defined(GPU_TEST_UTILS)
         if (onFlushRP->failFlushTimeCallbacks()) {
             return false;
         }
@@ -65,7 +74,7 @@ public:
         return true;
     }
 
-    void postFlush(skgpu::DrawToken startTokenForNextFlush) override {
+    void postFlush(skgpu::AtlasToken startTokenForNextFlush) override {
         if (fAtlas) {
             fAtlas->compact(startTokenForNextFlush);
         }
@@ -95,7 +104,7 @@ private:
     ShapeDataList                  fShapeList;
 };
 
-} // namespace skgpu::v1
+}  // namespace skgpu::ganesh
 
 #endif // SK_ENABLE_OPTIMIZE_SIZE
 

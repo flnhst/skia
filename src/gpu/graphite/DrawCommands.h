@@ -9,8 +9,9 @@
 #define skgpu_graphite_DrawPassCommands_DEFINED
 
 #include "include/core/SkRect.h"
-#include "src/core/SkArenaAlloc.h"
-#include "src/core/SkTBlockList.h"
+#include "src/base/SkArenaAlloc.h"
+#include "src/base/SkTBlockList.h"
+#include "src/gpu/graphite/CommandTypes.h"
 #include "src/gpu/graphite/DrawTypes.h"
 
 namespace skgpu::graphite {
@@ -26,18 +27,19 @@ namespace DrawPassCommands {
 //
 // We leave this SKGPU_DRAW_COMMAND_TYPES macro defined for use by code that wants to operate on
 // DrawPassCommands types polymorphically.
-#define SKGPU_DRAW_PASS_COMMAND_TYPES(M)                            \
-    M(BindGraphicsPipeline)                                         \
-    M(SetBlendConstants)                                            \
-    M(BindUniformBuffer)                                            \
-    M(BindDrawBuffers)                                              \
-    M(BindTexturesAndSamplers)                                      \
-    M(SetViewport)                                                  \
-    M(SetScissor)                                                   \
-    M(Draw)                                                         \
-    M(DrawIndexed)                                                  \
-    M(DrawInstanced)                                                \
-    M(DrawIndexedInstanced)
+#define SKGPU_DRAW_PASS_COMMAND_TYPES(M) \
+    M(BindGraphicsPipeline)              \
+    M(SetBlendConstants)                 \
+    M(BindUniformBuffer)                 \
+    M(BindDrawBuffers)                   \
+    M(BindTexturesAndSamplers)           \
+    M(SetScissor)                        \
+    M(Draw)                              \
+    M(DrawIndexed)                       \
+    M(DrawInstanced)                     \
+    M(DrawIndexedInstanced)              \
+    M(DrawIndirect)                      \
+    M(DrawIndexedIndirect)
 
 // Defines DrawPassCommands::Type, an enum of all draw command types.
 #define ENUM(T) k##T,
@@ -80,17 +82,14 @@ COMMAND(BindUniformBuffer,
 COMMAND(BindDrawBuffers,
             BindBufferInfo fVertices;
             BindBufferInfo fInstances;
-            BindBufferInfo fIndices);
+            BindBufferInfo fIndices;
+            BindBufferInfo fIndirect);
 COMMAND(BindTexturesAndSamplers,
             int fNumTexSamplers;
             PODArray<int> fTextureIndices;
             PODArray<int> fSamplerIndices);
-COMMAND(SetViewport,
-            SkRect fViewport;
-            float fMinDepth;
-            float fMaxDepth);
 COMMAND(SetScissor,
-            SkIRect fScissor);
+            Scissor fScissor);
 COMMAND(Draw,
             PrimitiveType fType;
             uint32_t fBaseVertex;
@@ -113,6 +112,10 @@ COMMAND(DrawIndexedInstanced,
             uint32_t fBaseVertex;
             uint32_t fBaseInstance;
             uint32_t fInstanceCount);
+COMMAND(DrawIndirect,
+            PrimitiveType fType);
+COMMAND(DrawIndexedIndirect,
+            PrimitiveType fType);
 
 #undef COMMAND
 
@@ -127,6 +130,8 @@ class List {
 public:
     List() = default;
     ~List() = default;
+
+    int count() const { return fCommands.count(); }
 
     void bindGraphicsPipeline(uint32_t pipelineIndex) {
         this->add<BindGraphicsPipeline>(pipelineIndex);
@@ -149,20 +154,15 @@ public:
         return {textureIndices, samplerIndices};
     }
 
-    void setViewport(const SkRect& viewport,
-                     float minDepth = 0,
-                     float maxDepth = 1) {
-        this->add<SetViewport>(viewport, minDepth, maxDepth);
-    }
-
     void setScissor(SkIRect scissor) {
-        this->add<SetScissor>(scissor);
+        this->add<SetScissor>(Scissor(scissor));
     }
 
     void bindDrawBuffers(BindBufferInfo vertexAttribs,
                          BindBufferInfo instanceAttribs,
-                         BindBufferInfo indices) {
-        this->add<BindDrawBuffers>(vertexAttribs, instanceAttribs, indices);
+                         BindBufferInfo indices,
+                         BindBufferInfo indirect) {
+        this->add<BindDrawBuffers>(vertexAttribs, instanceAttribs, indices, indirect);
     }
 
     void draw(PrimitiveType type, unsigned int baseVertex, unsigned int vertexCount) {
@@ -192,8 +192,16 @@ public:
                                         instanceCount);
     }
 
+    void drawIndirect(PrimitiveType type) {
+        this->add<DrawIndirect>(type);
+    }
+
+    void drawIndexedIndirect(PrimitiveType type) {
+        this->add<DrawIndexedIndirect>(type);
+    }
+
     using Command = std::pair<Type, void*>;
-    using Iter = SkTBlockList<Command>::CIter;
+    using Iter = SkTBlockList<Command, 16>::CIter;
     Iter commands() const { return fCommands.items(); }
 
 private:
@@ -213,7 +221,7 @@ private:
         return dst;
     }
 
-    SkTBlockList<Command> fCommands;
+    SkTBlockList<Command, 16> fCommands{SkBlockAllocator::GrowthPolicy::kFibonacci};
 
     // fAlloc needs to be a data structure which can append variable length data in contiguous
     // chunks, returning a stable handle to that data for later retrieval.

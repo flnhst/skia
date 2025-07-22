@@ -7,9 +7,25 @@
 
 #include "modules/skottie/src/text/TextValue.h"
 
+#include "include/core/SkColor.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkRect.h"
+#include "include/core/SkRefCnt.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkString.h"
+#include "include/core/SkTypeface.h"
+#include "include/utils/SkTextUtils.h"
+#include "modules/jsonreader/SkJSONReader.h"
+#include "modules/skottie/include/Skottie.h"
+#include "modules/skottie/include/TextShaper.h"
 #include "modules/skottie/src/SkottieJson.h"
 #include "modules/skottie/src/SkottiePriv.h"
 #include "modules/skottie/src/SkottieValue.h"
+
+#include <algorithm>
+#include <array>
+#include <cstddef>
+#include <limits>
 
 namespace skottie::internal {
 
@@ -37,6 +53,7 @@ bool Parse(const skjson::Value& jv, const internal::AnimationBuilder& abuilder, 
     v->fTextSize   = **text_size;
     v->fLineHeight = **line_height;
     v->fTypeface   = font->fTypeface;
+    v->fFontFamily = font->fFamily;
     v->fAscent     = font->fAscentPct * -0.01f * v->fTextSize; // negative ascent per SkFontMetrics
     v->fLineShift  = ParseDefault((*jtxt)["ls"], 0.0f);
 
@@ -63,6 +80,13 @@ bool Parse(const skjson::Value& jv, const internal::AnimationBuilder& abuilder, 
                            ParseDefault<SkScalar>((*jps)[1], 0));
         }
     }
+
+    static constexpr Shaper::Direction gDirectionMap[] = {
+        Shaper::Direction::kLTR,  // 'd': 0
+        Shaper::Direction::kRTL,  // 'd': 1
+    };
+    v->fDirection = gDirectionMap[std::min(ParseDefault<size_t>((*jtxt)["d"], 0),
+                                           std::size(gDirectionMap) - 1)];
 
     static constexpr Shaper::ResizePolicy gResizeMap[] = {
         Shaper::ResizePolicy::kNone,           // 'rs': 0
@@ -107,34 +131,44 @@ bool Parse(const skjson::Value& jv, const internal::AnimationBuilder& abuilder, 
                                    : Shaper::VAlign::kTop;
 
     static constexpr Shaper::VAlign gVAlignMap[] = {
-        Shaper::VAlign::kVisualTop,    // 'vj': 0
-        Shaper::VAlign::kVisualCenter, // 'vj': 1
-        Shaper::VAlign::kVisualBottom, // 'vj': 2
+        Shaper::VAlign::kHybridTop,    // 'vj': 0
+        Shaper::VAlign::kHybridCenter, // 'vj': 1
+        Shaper::VAlign::kHybridBottom, // 'vj': 2
+        Shaper::VAlign::kVisualTop,    // 'vj': 3
+        Shaper::VAlign::kVisualCenter, // 'vj': 4
+        Shaper::VAlign::kVisualBottom, // 'vj': 5
     };
     size_t vj;
-    if (skottie::Parse((*jtxt)[   "vj"], &vj) ||
-        skottie::Parse((*jtxt)["sk_vj"], &vj)) { // TODO: remove after migrating clients.
+    if (skottie::Parse((*jtxt)["vj"], &vj)) {
         if (vj < std::size(gVAlignMap)) {
             v->fVAlign = gVAlignMap[vj];
         } else {
-            // Legacy sk_vj values.
-            // TODO: remove after clients update.
-            switch (vj) {
-            case 3:
-                // 'sk_vj': 3 -> kVisualCenter/kScaleToFit
-                v->fVAlign = Shaper::VAlign::kVisualCenter;
-                v->fResize = Shaper::ResizePolicy::kScaleToFit;
-                break;
-            case 4:
-                // 'sk_vj': 4 -> kVisualCenter/kDownscaleToFit
-                v->fVAlign = Shaper::VAlign::kVisualCenter;
-                v->fResize = Shaper::ResizePolicy::kDownscaleToFit;
-                break;
-            default:
-                abuilder.log(Logger::Level::kWarning, nullptr,
-                             "Ignoring unknown 'vj' value: %zu", vj);
-                break;
-            }
+            abuilder.log(Logger::Level::kWarning, nullptr, "Ignoring unknown 'vj' value: %zu", vj);
+        }
+    } else if (skottie::Parse((*jtxt)["sk_vj"], &vj)) {
+        // Legacy sk_vj values.
+        // TODO: remove after clients update.
+        switch (vj) {
+        case 0:
+        case 1:
+        case 2:
+            static_assert(std::size(gVAlignMap) > 2);
+            v->fVAlign = gVAlignMap[vj];
+            break;
+        case 3:
+            // 'sk_vj': 3 -> kHybridCenter/kScaleToFit
+            v->fVAlign = Shaper::VAlign::kHybridCenter;
+            v->fResize = Shaper::ResizePolicy::kScaleToFit;
+            break;
+        case 4:
+            // 'sk_vj': 4 -> kHybridCenter/kDownscaleToFit
+            v->fVAlign = Shaper::VAlign::kHybridCenter;
+            v->fResize = Shaper::ResizePolicy::kDownscaleToFit;
+            break;
+        default:
+            abuilder.log(Logger::Level::kWarning, nullptr,
+                         "Ignoring unknown 'sk_vj' value: %zu", vj);
+            break;
         }
     }
 
@@ -144,8 +178,8 @@ bool Parse(const skjson::Value& jv, const internal::AnimationBuilder& abuilder, 
             return false;
         }
 
-        VectorValue color_vec;
-        if (!skottie::Parse(*jcolor, &color_vec)) {
+        ColorValue color_vec;
+        if (!skottie::Parse(*jcolor, static_cast<VectorValue*>(&color_vec))) {
             return false;
         }
 

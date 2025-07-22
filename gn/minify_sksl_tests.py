@@ -16,13 +16,19 @@ batchMinify = False
 sksl_minify = sys.argv[1]
 shared_module = sys.argv[2]
 public_module = sys.argv[3]
-with open(sys.argv[4], 'r') as reader:
-    inputs = shlex.split(reader.read())
+rt_shader_module = sys.argv[4]
+input_root_dir = sys.argv[5]
+output_root_dir = sys.argv[6]
+# The last arg is a file containing a space seperated list of filenames
+input_file = sys.argv[7]
+with open(input_file, 'r') as reader:
+    all_inputs = shlex.split(reader.read())
 
-def pairwise(iterable):
-    # Iterate over an array pairwise (two elements at a time).
-    a = iter(iterable)
-    return zip(a, a)
+inputs = []
+for file in all_inputs:
+    if (file.endswith(".rts") or file.endswith(".privrts") or file.endswith(".rtcf") or
+        file.endswith(".rtb") or file.endswith(".mfrag") or file.endswith(".mvert")):
+        inputs.append(file)
 
 def executeWorklist(input, worklist):
     # Invoke sksl-minify, passing in the worklist.
@@ -42,30 +48,36 @@ def executeWorklist(input, worklist):
 
 worklist = tempfile.NamedTemporaryFile(suffix='.worklist', delete=False, mode='w')
 
-# The `inputs` array pairs off input files with their matching output directory, e.g.:
-#     //skia/resources/sksl/shared/HelloWorld.rts
-#     //skia/tests/sksl/shared/
-#     //skia/resources/sksl/intrinsics/Abs.rts
-#     //skia/tests/sksl/intrinsics/
-#     ... (etc) ...
-# Here we loop over these inputs and convert them into a worklist file for sksl-minify.
-for input, targetDir in pairwise(inputs):
+# Here we loop over the inputs and convert them into a worklist file for sksl-minify.
+for input in inputs:
+    # Derive the target path from the input filename and remove the extension so it can
+    # end with .minified.sksl
+    target = input.replace(input_root_dir, output_root_dir)
+    target = os.path.splitext(target)[0]
+    target_dir = os.path.dirname(target)
+    if not os.path.isdir(target_dir):
+        os.mkdir(target_dir)
+
     noExt, ext = os.path.splitext(input)
     head, tail = os.path.split(noExt)
 
-    if not os.path.isdir(targetDir):
-        os.mkdir(targetDir)
-
-    target = os.path.join(targetDir, tail)
-
     if ext == '.rts':
         worklist.write("--shader\n")
+    elif ext == '.privrts':
+        worklist.write("--privshader\n")
     elif ext == '.rtcf':
         worklist.write("--colorfilter\n")
     elif ext == '.rtb':
         worklist.write("--blender\n")
+    elif ext == '.mfrag':
+        worklist.write("--meshfrag\n")
+    elif ext == '.mvert':
+        worklist.write("--meshvert\n")
+
     worklist.write(target + ".minified.sksl\n")
     worklist.write(input + "\n")
+    if ext == '.privrts':
+        worklist.write(rt_shader_module + "\n")
     worklist.write(public_module + "\n")
     worklist.write(shared_module + "\n\n")
 

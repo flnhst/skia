@@ -13,7 +13,8 @@ resolver) and extracted to
 which will act as our sysroot.
 """
 
-load("//toolchain:utils.bzl", "gcs_mirror_only", "gcs_mirror_url")
+load(":clang_layering_check.bzl", "generate_system_module_map")
+load(":utils.bzl", "gcs_mirror_only", "gcs_mirror_url")
 
 # The clang from CIPD has no prefix, and we download it directly from our GCS bucket
 # This is clang 15.0.1 and iwyu built from source.
@@ -25,19 +26,25 @@ debs_to_install = [
     # (libm), etc. linux-libc-dev has the header files specific to linux. libc6-dev has the libc
     # system headers (e.g. malloc.h, math.h).
     {
-        # From https://packages.debian.org/bullseye/amd64/libc6/download
-        "sha256": "a6263062b476cee1052972621d473b159debec6e424f661eda88248b00331d79",
-        "url": "https://ftp.debian.org/debian/pool/main/g/glibc/libc6_2.31-13+deb11u4_amd64.deb",
+        # We use this old version of glibc because as of Nov 2022, many of our Swarming machines
+        # are still on Debian 10. While many of the Bazel tasks can be run in RBE, using a newer
+        # Debian 11 image (see //bazel/rbe/gce_linux_container/Dockerfile) some tasks need to be
+        # run on these host machines using Debian 10. As a result, we need to compile and link
+        # against a version of glibc that can be run on Debian 10 until we update those Swarming
+        # hosts.
+        # From https://packages.debian.org/buster/amd64/libc6/download
+        "sha256": "980066e3e6124b8d84cdfd4cfa96d78a97cd659f8f3ba995bbcb887dad9ac237",
+        "url": "https://security.debian.org/debian-security/pool/updates/main/g/glibc/libc6_2.28-10+deb10u2_amd64.deb",
     },
     {
-        # From https://packages.debian.org/bullseye/amd64/linux-libc-dev/download
-        "sha256": "e89023a5fc58c30ebb8cbb82de77f872baeafe7a5449f574b03cea478f7e9e6d",
-        "url": "https://ftp.debian.org/debian/pool/main/l/linux/linux-libc-dev_5.10.140-1_amd64.deb",
+        # From https://packages.debian.org/buster/amd64/linux-libc-dev/download
+        "sha256": "e724656440d71d6316772fe58d7a8ac9634a0060a94af4e3b50e4f0a9e5a75e0",
+        "url": "https://security.debian.org/debian-security/pool/updates/main/l/linux/linux-libc-dev_4.19.260-1_amd64.deb",
     },
     {
-        # From https://packages.debian.org/bullseye/amd64/libc6-dev/download
-        "sha256": "5f368eb89d102ccd23529a02fb17aaa1c15e7612506e22ef0c559b71f5049a91",
-        "url": "https://ftp.debian.org/debian/pool/main/g/glibc/libc6-dev_2.31-13+deb11u4_amd64.deb",
+        # From https://packages.debian.org/buster/amd64/libc6-dev/download
+        "sha256": "6c11087f5bdc6a2a59fc6424e003dddede53fb97888ade2e35738448fa30a159",
+        "url": "https://security.debian.org/debian-security/pool/updates/main/g/glibc/libc6-dev_2.28-10+deb10u2_amd64.deb",
     },
     # These two put the X11 include files in ${PWD}/usr/include/X11
     # libx11-dev puts libX11.a in ${PWD}/usr/lib/x86_64-linux-gnu
@@ -144,6 +151,23 @@ debs_to_install = [
         "sha256": "479736c235af0537c1af8df4befc32e638a4e979961fdb02f366501298c50526",
         "url": "https://ftp.debian.org/debian/pool/main/libg/libglu/libglu1-mesa_9.0.1-1_amd64.deb",
     },
+    # These are needed for rustc to link executables
+    {
+        # https://packages.debian.org/bullseye/amd64/libgcc-s1/download
+        "sha256": "e478f2709d8474165bb664de42e16950c391f30eaa55bc9b3573281d83a29daf",
+        "url": "https://ftp.debian.org/debian/pool/main/g/gcc-10/libgcc-s1_10.2.1-6_amd64.deb",
+    },
+    # needed for EGL support
+    {
+        # From https://packages.debian.org/bullseye/amd64/libegl-dev/download
+        "sha256": "2847662b23487d5b1e467bca8cc8753baa880f794744a9b492c978bd5514b286",
+        "url": "http://ftp.debian.org/debian/pool/main/libg/libglvnd/libegl-dev_1.3.2-1_amd64.deb",
+    },
+    {
+        # https://packages.debian.org/bullseye/amd64/libgles-dev/download
+        "sha256": "969e9197d8b8a36780f9b5d86f7c3066cdfef9dd7cdc3aee59a1870415c53578",
+        "url": "http://ftp.debian.org/debian/pool/main/libg/libglvnd/libgles-dev_1.3.2-1_amd64.deb",
+    },
 ]
 
 def _download_and_extract_deb(ctx, deb, sha256, prefix, output = ""):
@@ -187,6 +211,25 @@ def _download_linux_amd64_toolchain_impl(ctx):
             ".",
         )
 
+    # Make -lgcc_s work
+    ctx.symlink("lib/x86_64-linux-gnu/libgcc_s.so.1", "lib/x86_64-linux-gnu/libgcc_s.so")
+
+    # This list of files lines up with _make_default_flags() in linux_amd64_toolchain_config.bzl
+    # It is all locations that our toolchain could find a system header.
+    builtin_include_directories = [
+        "include/c++/v1",
+        "include/x86_64-unknown-linux-gnu/c++/v1",
+        "lib/clang/15.0.1/include",
+        "usr/include",
+        "usr/include/x86_64-linux-gnu",
+    ]
+
+    generate_system_module_map(
+        ctx,
+        module_file = "toolchain_system_headers.modulemap",
+        folders = builtin_include_directories,
+    )
+
     # Create a BUILD.bazel file that makes the files downloaded into the toolchain visible.
     # We have separate groups for each task because doing less work (sandboxing fewer files
     # or uploading less data to RBE) makes compiles go faster. We try to strike a balance
@@ -198,6 +241,12 @@ def _download_linux_amd64_toolchain_impl(ctx):
         content = """
 # DO NOT EDIT THIS BAZEL FILE DIRECTLY
 # Generated from ctx.file action in download_linux_amd64_toolchain.bzl
+filegroup(
+    name = "generated_module_map",
+    srcs = ["toolchain_system_headers.modulemap"],
+    visibility = ["//visibility:public"],
+)
+
 filegroup(
     name = "archive_files",
     srcs = [
@@ -242,6 +291,15 @@ filegroup(
         ],
         allow_empty = False,
     ),
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "link_libs",
+    srcs = [
+        "lib/x86_64-unknown-linux-gnu/libc++.a",
+        "lib/x86_64-unknown-linux-gnu/libc++abi.a",
+],
     visibility = ["//visibility:public"],
 )
 """,

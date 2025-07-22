@@ -14,14 +14,17 @@
 #include "include/core/SkString.h"
 #include "include/core/SkSurfaceProps.h"
 #include "include/core/SkTypes.h"
-#include "include/gpu/GrBackendSurface.h"
-#include "include/gpu/GrContextOptions.h"
-#include "include/gpu/GrDirectContext.h"
-#include "include/gpu/GrTypes.h"
-#include "include/gpu/gl/GrGLTypes.h"
+#include "include/gpu/GpuTypes.h"
+#include "include/gpu/ganesh/GrBackendSurface.h"
+#include "include/gpu/ganesh/GrContextOptions.h"
+#include "include/gpu/ganesh/GrDirectContext.h"
+#include "include/gpu/ganesh/GrTypes.h"
+#include "include/gpu/ganesh/gl/GrGLTypes.h"
+#include "include/private/base/SkDebug.h"
 #include "include/private/gpu/ganesh/GrTypesPriv.h"
-#include "include/utils/SkRandom.h"
+#include "src/base/SkRandom.h"
 #include "src/gpu/KeyBuilder.h"
+#include "src/gpu/SkBackingFit.h"
 #include "src/gpu/Swizzle.h"
 #include "src/gpu/ganesh/GrAutoLocaleSetter.h"
 #include "src/gpu/ganesh/GrCaps.h"
@@ -97,9 +100,9 @@ private:
 };
 }  // anonymous namespace
 
-GR_DEFINE_FRAGMENT_PROCESSOR_TEST(BigKeyProcessor);
+GR_DEFINE_FRAGMENT_PROCESSOR_TEST(BigKeyProcessor)
 
-#if GR_TEST_UTILS
+#if defined(GPU_TEST_UTILS)
 std::unique_ptr<GrFragmentProcessor> BigKeyProcessor::TestCreate(GrProcessorTestData*) {
     return BigKeyProcessor::Make();
 }
@@ -155,10 +158,8 @@ private:
 static const int kRenderTargetHeight = 1;
 static const int kRenderTargetWidth = 1;
 
-static std::unique_ptr<skgpu::v1::SurfaceDrawContext> random_surface_draw_context(
-        GrRecordingContext* rContext,
-        SkRandom* random,
-        const GrCaps* caps) {
+static std::unique_ptr<skgpu::ganesh::SurfaceDrawContext> random_surface_draw_context(
+        GrRecordingContext* rContext, SkRandom* random, const GrCaps* caps) {
     GrSurfaceOrigin origin = random->nextBool() ? kTopLeft_GrSurfaceOrigin
                                                 : kBottomLeft_GrSurfaceOrigin;
 
@@ -169,13 +170,20 @@ static std::unique_ptr<skgpu::v1::SurfaceDrawContext> random_surface_draw_contex
     // Above could be 0 if msaa isn't supported.
     sampleCnt = std::max(1, sampleCnt);
 
-    return skgpu::v1::SurfaceDrawContext::Make(
-            rContext, GrColorType::kRGBA_8888, nullptr, SkBackingFit::kExact,
-            {kRenderTargetWidth, kRenderTargetHeight}, SkSurfaceProps(), /*label=*/{},
-            sampleCnt, GrMipmapped::kNo, GrProtected::kNo, origin);
+    return skgpu::ganesh::SurfaceDrawContext::Make(rContext,
+                                                   GrColorType::kRGBA_8888,
+                                                   nullptr,
+                                                   SkBackingFit::kExact,
+                                                   {kRenderTargetWidth, kRenderTargetHeight},
+                                                   SkSurfaceProps(),
+                                                   /*label=*/{},
+                                                   sampleCnt,
+                                                   skgpu::Mipmapped::kNo,
+                                                   GrProtected::kNo,
+                                                   origin);
 }
 
-#if GR_TEST_UTILS
+#if defined(GPU_TEST_UTILS)
 static void set_random_xpf(GrPaint* paint, GrProcessorTestData* d) {
     paint->setXPFactory(GrXPFactoryTestFactory::Get(d));
 }
@@ -256,7 +264,7 @@ static void set_random_color_coverage_stages(GrPaint* paint,
 
 #endif
 
-#if !GR_TEST_UTILS
+#if !defined(GPU_TEST_UTILS)
 bool GrDrawingManager::ProgramUnitTest(GrDirectContext*, int) { return true; }
 #else
 bool GrDrawingManager::ProgramUnitTest(GrDirectContext* direct, int maxStages, int maxLevels) {
@@ -266,14 +274,20 @@ bool GrDrawingManager::ProgramUnitTest(GrDirectContext* direct, int maxStages, i
     GrProcessorTestData::ViewInfo views[2];
 
     // setup arbitrary textures
-    GrMipmapped mipmapped = GrMipmapped(caps->mipmapSupport());
+    skgpu::Mipmapped mipmapped = skgpu::Mipmapped(caps->mipmapSupport());
     {
         static constexpr SkISize kDims = {34, 18};
         const GrBackendFormat format = caps->getDefaultBackendFormat(GrColorType::kRGBA_8888,
                                                                      GrRenderable::kYes);
-        auto proxy = proxyProvider->createProxy(format, kDims, GrRenderable::kYes, 1,
-                                                mipmapped, SkBackingFit::kExact, SkBudgeted::kNo,
-                                                GrProtected::kNo, /*label=*/{},
+        auto proxy = proxyProvider->createProxy(format,
+                                                kDims,
+                                                GrRenderable::kYes,
+                                                1,
+                                                mipmapped,
+                                                SkBackingFit::kExact,
+                                                skgpu::Budgeted::kNo,
+                                                GrProtected::kNo,
+                                                /*label=*/{},
                                                 GrInternalSurfaceFlags::kNone);
         skgpu::Swizzle swizzle = caps->getReadSwizzle(format, GrColorType::kRGBA_8888);
         views[0] = {{std::move(proxy), kBottomLeft_GrSurfaceOrigin, swizzle},
@@ -283,9 +297,15 @@ bool GrDrawingManager::ProgramUnitTest(GrDirectContext* direct, int maxStages, i
         static constexpr SkISize kDims = {16, 22};
         const GrBackendFormat format = caps->getDefaultBackendFormat(GrColorType::kAlpha_8,
                                                                      GrRenderable::kNo);
-        auto proxy = proxyProvider->createProxy(format, kDims, GrRenderable::kNo, 1, mipmapped,
-                                                SkBackingFit::kExact, SkBudgeted::kNo,
-                                                GrProtected::kNo, /*label=*/{},
+        auto proxy = proxyProvider->createProxy(format,
+                                                kDims,
+                                                GrRenderable::kNo,
+                                                1,
+                                                mipmapped,
+                                                SkBackingFit::kExact,
+                                                skgpu::Budgeted::kNo,
+                                                GrProtected::kNo,
+                                                /*label=*/{},
                                                 GrInternalSurfaceFlags::kNone);
         skgpu::Swizzle swizzle = caps->getReadSwizzle(format, GrColorType::kAlpha_8);
         views[1] = {{std::move(proxy), kTopLeft_GrSurfaceOrigin, swizzle},
@@ -315,13 +335,16 @@ bool GrDrawingManager::ProgramUnitTest(GrDirectContext* direct, int maxStages, i
     }
     // Flush everything, test passes if flush is successful(ie, no asserts are hit, no crashes)
     direct->flush(GrFlushInfo());
-    direct->submit(false);
+    direct->submit(GrSyncCpu::kNo);
 
     // Validate that GrFPs work correctly without an input.
-    auto sdc = skgpu::v1::SurfaceDrawContext::Make(
-            direct, GrColorType::kRGBA_8888, nullptr, SkBackingFit::kExact,
-            {kRenderTargetWidth, kRenderTargetHeight}, SkSurfaceProps(),
-            /*label=*/{});
+    auto sdc = skgpu::ganesh::SurfaceDrawContext::Make(direct,
+                                                       GrColorType::kRGBA_8888,
+                                                       nullptr,
+                                                       SkBackingFit::kExact,
+                                                       {kRenderTargetWidth, kRenderTargetHeight},
+                                                       SkSurfaceProps(),
+                                                       /*label=*/{});
     if (!sdc) {
         SkDebugf("Could not allocate a surfaceDrawContext");
         return false;
@@ -342,7 +365,7 @@ bool GrDrawingManager::ProgramUnitTest(GrDirectContext* direct, int maxStages, i
             GrDrawRandomOp(&random, sdc.get(), std::move(paint));
 
             direct->flush(GrFlushInfo());
-            direct->submit(false);
+            direct->submit(GrSyncCpu::kNo);
         }
     }
 
@@ -373,9 +396,9 @@ static int get_programs_max_stages(const sk_gpu_test::ContextInfo& ctxInfo) {
         // On Angle D3D we will hit a limit of out variables if we use too many stages. This is
         // particularly true on D3D9 with a low limit on varyings and the fact that every varying is
         // packed as though it has 4 components.
-        if (ctxInfo.type() == sk_gpu_test::GrContextFactory::kANGLE_D3D9_ES2_ContextType) {
+        if (ctxInfo.type() == skgpu::ContextType::kANGLE_D3D9_ES2) {
             maxStages = 2;
-        } else if (ctxInfo.type() == sk_gpu_test::GrContextFactory::kANGLE_D3D11_ES2_ContextType) {
+        } else if (ctxInfo.type() == skgpu::ContextType::kANGLE_D3D11_ES2) {
             maxStages = 3;
         }
     }
@@ -400,8 +423,8 @@ static int get_programs_max_levels(const sk_gpu_test::ContextInfo& ctxInfo) {
             maxTreeLevels = 3;
         }
 #endif
-        if (ctxInfo.type() == sk_gpu_test::GrContextFactory::kANGLE_D3D9_ES2_ContextType ||
-            ctxInfo.type() == sk_gpu_test::GrContextFactory::kANGLE_D3D11_ES2_ContextType) {
+        if (ctxInfo.type() == skgpu::ContextType::kANGLE_D3D9_ES2 ||
+            ctxInfo.type() == skgpu::ContextType::kANGLE_D3D11_ES2) {
             // On Angle D3D we will hit a limit of out variables if we use too many stages.
             maxTreeLevels = 2;
         }
@@ -436,6 +459,5 @@ DEF_GANESH_TEST(Programs, reporter, options, CtsEnforcement::kNever) {
     GrContextOptions opts = options;
     opts.fSuppressPrints = true;
     sk_gpu_test::GrContextFactory debugFactory(opts);
-    skiatest::RunWithGaneshTestContexts(
-            test_programs, &sk_gpu_test::GrContextFactory::IsRenderingContext, reporter, opts);
+    skiatest::RunWithGaneshTestContexts(test_programs, &skgpu::IsRenderingContext, reporter, opts);
 }

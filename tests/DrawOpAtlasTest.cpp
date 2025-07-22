@@ -15,12 +15,13 @@
 #include "include/core/SkSize.h"
 #include "include/core/SkSurfaceProps.h"
 #include "include/core/SkTypes.h"
-#include "include/gpu/GrBackendSurface.h"
-#include "include/gpu/GrDirectContext.h"
-#include "include/gpu/GrTypes.h"
+#include "include/gpu/GpuTypes.h"
+#include "include/gpu/ganesh/GrBackendSurface.h"
+#include "include/gpu/ganesh/GrDirectContext.h"
+#include "include/gpu/ganesh/GrTypes.h"
 #include "include/private/gpu/ganesh/GrTypesPriv.h"
-#include "src/core/SkMatrixProvider.h"
 #include "src/gpu/AtlasTypes.h"
+#include "src/gpu/SkBackingFit.h"
 #include "src/gpu/ganesh/GrCaps.h"
 #include "src/gpu/ganesh/GrDeferredUpload.h"
 #include "src/gpu/ganesh/GrDirectContextPriv.h"
@@ -37,6 +38,9 @@
 #include "src/gpu/ganesh/text/GrAtlasManager.h"
 #include "tests/CtsEnforcement.h"
 #include "tests/Test.h"
+#include "tools/fonts/FontToolUtils.h"
+#include "tools/gpu/ganesh/AtlasTextOpTools.h"
+#include "tools/gpu/ganesh/GrAtlasTools.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -48,34 +52,11 @@ struct GrContextOptions;
 using namespace skgpu::ganesh;
 using MaskFormat = skgpu::MaskFormat;
 
-static const int kNumPlots = 2;
-static const int kPlotSize = 32;
-static const int kAtlasSize = kNumPlots * kPlotSize;
 
-int GrDrawOpAtlas::numAllocated_TestingOnly() const {
-    int count = 0;
-    for (uint32_t i = 0; i < this->maxPages(); ++i) {
-        if (fViews[i].proxy()->isInstantiated()) {
-            ++count;
-        }
-    }
-
-    return count;
-}
-
-void GrAtlasManager::setMaxPages_TestingOnly(uint32_t maxPages) {
-    for (int i = 0; i < skgpu::kMaskFormatCount; i++) {
-        if (fAtlases[i]) {
-            fAtlases[i]->setMaxPages_TestingOnly(maxPages);
-        }
-    }
-}
-
-void GrDrawOpAtlas::setMaxPages_TestingOnly(uint32_t maxPages) {
-    SkASSERT(!fNumActivePages);
-
-    fMaxPages = maxPages;
-}
+namespace {
+const int kNumPlots = 2;
+const int kPlotSize = 32;
+const int kAtlasSize = kNumPlots * kPlotSize;
 
 class AssertOnEvict : public skgpu::PlotEvictionCallback {
 public:
@@ -84,43 +65,18 @@ public:
     }
 };
 
-static void check(skiatest::Reporter* r, GrDrawOpAtlas* atlas,
-                  uint32_t expectedActive, uint32_t expectedMax, int expectedAlloced) {
-    REPORTER_ASSERT(r, expectedActive == atlas->numActivePages());
-    REPORTER_ASSERT(r, expectedMax == atlas->maxPages());
-    REPORTER_ASSERT(r, expectedAlloced == atlas->numAllocated_TestingOnly());
+void check(skiatest::Reporter* r, GrDrawOpAtlas* atlas,
+           uint32_t expectedActive, int expectedAlloced) {
+    REPORTER_ASSERT(r, atlas->numActivePages() == expectedActive);
+    REPORTER_ASSERT(r, GrDrawOpAtlasTools::NumAllocated(atlas) == expectedAlloced);
+    REPORTER_ASSERT(r, atlas->maxPages() == skgpu::PlotLocator::kMaxMultitexturePages);
 }
 
-class TestingUploadTarget : public GrDeferredUploadTarget {
-public:
-    TestingUploadTarget() { }
-
-    const skgpu::TokenTracker* tokenTracker() final { return &fTokenTracker; }
-    skgpu::TokenTracker* writeableTokenTracker() { return &fTokenTracker; }
-
-    skgpu::DrawToken addInlineUpload(GrDeferredTextureUploadFn&&) final {
-        SkASSERT(0); // this test shouldn't invoke this code path
-        return fTokenTracker.nextDrawToken();
-    }
-
-    skgpu::DrawToken addASAPUpload(GrDeferredTextureUploadFn&& upload) final {
-        return fTokenTracker.nextTokenToFlush();
-    }
-
-    void issueDrawToken() { fTokenTracker.issueDrawToken(); }
-    void issueFlushToken() { fTokenTracker.issueFlushToken(); }
-
-private:
-    skgpu::TokenTracker fTokenTracker;
-
-    using INHERITED = GrDeferredUploadTarget;
-};
-
-static bool fill_plot(GrDrawOpAtlas* atlas,
-                      GrResourceProvider* resourceProvider,
-                      GrDeferredUploadTarget* target,
-                      skgpu::AtlasLocator* atlasLocator,
-                      int alpha) {
+bool fill_plot(GrDrawOpAtlas* atlas,
+               GrResourceProvider* resourceProvider,
+               GrDeferredUploadTarget* target,
+               skgpu::AtlasLocator* atlasLocator,
+               int alpha) {
     SkImageInfo ii = SkImageInfo::MakeA8(kPlotSize, kPlotSize);
 
     SkBitmap data;
@@ -132,7 +88,33 @@ static bool fill_plot(GrDrawOpAtlas* atlas,
                              data.getAddr(0, 0), atlasLocator);
     return GrDrawOpAtlas::ErrorCode::kSucceeded == code;
 }
+}  // anonymous namespace
 
+// Can't be in anonymous namespace because it needs friend access to TokenTracker
+class TestingUploadTarget : public GrDeferredUploadTarget {
+public:
+    TestingUploadTarget() { }
+
+    const skgpu::TokenTracker* tokenTracker() final { return &fTokenTracker; }
+    skgpu::TokenTracker* writeableTokenTracker() { return &fTokenTracker; }
+
+    skgpu::AtlasToken addInlineUpload(GrDeferredTextureUploadFn&&) final {
+        SkASSERT(0); // this test shouldn't invoke this code path
+        return fTokenTracker.nextDrawToken();
+    }
+
+    skgpu::AtlasToken addASAPUpload(GrDeferredTextureUploadFn&& upload) final {
+        return fTokenTracker.nextFlushToken();
+    }
+
+    void issueDrawToken() { fTokenTracker.issueDrawToken(); }
+    void issueFlushToken() { fTokenTracker.issueFlushToken(); }
+
+private:
+    skgpu::TokenTracker fTokenTracker;
+
+    using INHERITED = GrDeferredUploadTarget;
+};
 
 // This is a basic DrawOpAtlas test. It simply verifies that multitexture atlases correctly
 // add and remove pages. Note that this is simulating flush-time behavior.
@@ -167,7 +149,7 @@ DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(BasicDrawOpAtlas,
                                                 GrDrawOpAtlas::AllowMultitexturing::kYes,
                                                 &evictor,
                                                 /*label=*/"BasicDrawOpAtlasTest");
-    check(reporter, atlas.get(), 0, 4, 0);
+    check(reporter, atlas.get(), 0, 0);
 
     // Fill up the first level
     skgpu::AtlasLocator atlasLocators[kNumPlots * kNumPlots];
@@ -175,27 +157,27 @@ DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(BasicDrawOpAtlas,
         bool result = fill_plot(
                 atlas.get(), resourceProvider, &uploadTarget, &atlasLocators[i], i * 32);
         REPORTER_ASSERT(reporter, result);
-        check(reporter, atlas.get(), 1, 4, 1);
+        check(reporter, atlas.get(), 1, 1);
     }
 
     atlas->instantiate(&onFlushResourceProvider);
-    check(reporter, atlas.get(), 1, 4, 1);
+    check(reporter, atlas.get(), 1, 1);
 
     // Force allocation of a second level
     skgpu::AtlasLocator atlasLocator;
     bool result = fill_plot(atlas.get(), resourceProvider, &uploadTarget, &atlasLocator, 4 * 32);
     REPORTER_ASSERT(reporter, result);
-    check(reporter, atlas.get(), 2, 4, 2);
+    check(reporter, atlas.get(), 2, 2);
 
     // Simulate a lot of draws using only the first plot. The last texture should be compacted.
     for (int i = 0; i < 512; ++i) {
         atlas->setLastUseToken(atlasLocators[0], uploadTarget.tokenTracker()->nextDrawToken());
         uploadTarget.issueDrawToken();
         uploadTarget.issueFlushToken();
-        atlas->compact(uploadTarget.tokenTracker()->nextTokenToFlush());
+        atlas->compact(uploadTarget.tokenTracker()->nextFlushToken());
     }
 
-    check(reporter, atlas.get(), 1, 4, 1);
+    check(reporter, atlas.get(), 1, 1);
 }
 
 // This test verifies that the AtlasTextOp::onPrepare method correctly handles a failure
@@ -209,23 +191,24 @@ DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(GrAtlasTextOpPreparation,
     auto gpu = dContext->priv().getGpu();
     auto resourceProvider = dContext->priv().resourceProvider();
 
-    auto sdc = skgpu::v1::SurfaceDrawContext::Make(dContext, GrColorType::kRGBA_8888, nullptr,
-                                                   SkBackingFit::kApprox, {32, 32},
-                                                   SkSurfaceProps(),
-                                                   /*label=*/"AtlasTextOpPreparation");
+    auto sdc = skgpu::ganesh::SurfaceDrawContext::Make(dContext,
+                                                       GrColorType::kRGBA_8888,
+                                                       nullptr,
+                                                       SkBackingFit::kApprox,
+                                                       {32, 32},
+                                                       SkSurfaceProps(),
+                                                       /*label=*/"AtlasTextOpPreparation");
 
     SkPaint paint;
     paint.setColor(SK_ColorRED);
 
-    SkFont font;
+    SkFont font = ToolUtils::DefaultFont();
     font.setEdging(SkFont::Edging::kAlias);
 
     const char* text = "a";
-    SkMatrixProvider matrixProvider(SkMatrix::I());
 
-    GrOp::Owner op = AtlasTextOp::CreateOpTestingOnly(sdc.get(), paint,
-                                                      font, matrixProvider,
-                                                      text, 16, 16);
+    GrOp::Owner op =
+            AtlasTextOpTools::CreateOp(sdc.get(), paint, font, SkMatrix::I(), text, 16, 16);
     if (!op) {
         return;
     }
@@ -251,13 +234,14 @@ DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(GrAtlasTextOpPreparation,
     auto atlasManager = dContext->priv().getAtlasManager();
     unsigned int numProxies;
     atlasManager->getViews(MaskFormat::kA8, &numProxies);
-    atlasManager->setMaxPages_TestingOnly(0);
+    GrAtlasManagerTools::SetMaxPages(atlasManager, 0);
 
     flushState.setOpArgs(&opArgs);
     op->prepare(&flushState);
     flushState.setOpArgs(nullptr);
 }
 
+namespace {
 void test_atlas_config(skiatest::Reporter* reporter, int maxTextureSize, size_t maxBytes,
                        MaskFormat maskFormat, SkISize expectedDimensions,
                        SkISize expectedPlotDimensions) {
@@ -265,6 +249,7 @@ void test_atlas_config(skiatest::Reporter* reporter, int maxTextureSize, size_t 
     REPORTER_ASSERT(reporter, config.atlasDimensions(maskFormat) == expectedDimensions);
     REPORTER_ASSERT(reporter, config.plotDimensions(maskFormat) == expectedPlotDimensions);
 }
+}  // anonymous namespace
 
 DEF_GANESH_TEST(GrDrawOpAtlasConfig_Basic, reporter, options, CtsEnforcement::kApiLevel_T) {
     // 1/4 MB

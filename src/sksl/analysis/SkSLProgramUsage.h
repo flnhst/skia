@@ -9,7 +9,7 @@
 #define SKSL_PROGRAMUSAGE
 
 #include "include/core/SkTypes.h"
-#include "include/private/SkTHash.h"
+#include "src/core/SkTHash.h"
 
 namespace SkSL {
 
@@ -17,6 +17,7 @@ class Expression;
 class FunctionDeclaration;
 class ProgramElement;
 class Statement;
+class Symbol;
 class Variable;
 
 /**
@@ -41,8 +42,14 @@ public:
     void remove(const Statement* stmt);
     void remove(const ProgramElement& element);
 
-    SkTHashMap<const Variable*, VariableCounts> fVariableCounts;
-    SkTHashMap<const FunctionDeclaration*, int> fCallCounts;
+    bool operator==(const ProgramUsage& that) const;
+    bool operator!=(const ProgramUsage& that) const { return !(*this == that); }
+
+    // All Symbol* objects in fStructCounts must be StructType*.
+    skia_private::THashMap<const Symbol*, int> fStructCounts;
+    // All Symbol* objects in fCallCounts must be FunctionDeclaration*.
+    skia_private::THashMap<const Symbol*, int> fCallCounts;
+    skia_private::THashMap<const Variable*, VariableCounts> fVariableCounts;
 };
 
 }  // namespace SkSL

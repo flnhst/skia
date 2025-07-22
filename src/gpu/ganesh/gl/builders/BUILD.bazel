@@ -1,8 +1,10 @@
-load("//bazel:macros.bzl", "exports_files_legacy", "split_srcs_and_hdrs")
+load("//bazel:skia_rules.bzl", "split_srcs_and_hdrs")
+
+package(
+    default_applicable_licenses = ["//:license"],
+)
 
 licenses(["notice"])
-
-exports_files_legacy()
 
 BUILDER_FILES = [
     "GrGLProgramBuilder.cpp",
@@ -14,16 +16,5 @@ BUILDER_FILES = [
 split_srcs_and_hdrs(
     name = "builder",
     files = BUILDER_FILES,
-)
-
-filegroup(
-    name = "srcs",
-    srcs = [":builder_srcs"],
-    visibility = ["//src/gpu/ganesh/gl:__pkg__"],
-)
-
-filegroup(
-    name = "private_hdrs",
-    srcs = [":builder_hdrs"],
     visibility = ["//src/gpu/ganesh/gl:__pkg__"],
 )

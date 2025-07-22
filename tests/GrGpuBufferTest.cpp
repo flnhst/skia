@@ -13,11 +13,13 @@
 #include "include/core/SkRefCnt.h"
 #include "include/core/SkSurfaceProps.h"
 #include "include/core/SkTypes.h"
-#include "include/gpu/GrDirectContext.h"
+#include "include/gpu/ganesh/GrDirectContext.h"
 #include "include/private/SkColorData.h"
-#include "include/private/SkTemplates.h"
+#include "include/private/base/SkAlign.h"
+#include "include/private/base/SkTemplates.h"
 #include "include/private/gpu/ganesh/GrTypesPriv.h"
 #include "src/core/SkSLTypeShared.h"
+#include "src/gpu/SkBackingFit.h"
 #include "src/gpu/ganesh/GrAppliedClip.h"
 #include "src/gpu/ganesh/GrBuffer.h"
 #include "src/gpu/ganesh/GrCaps.h"
@@ -217,7 +219,7 @@ private:
 DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(GrGpuBufferTransferTest,
                                        reporter,
                                        ctxInfo,
-                                       CtsEnforcement::kApiLevel_T) {
+                                       CtsEnforcement::kApiLevel_U) {
     if (!ctxInfo.directContext()->priv().caps()->transferFromBufferToBufferSupport()) {
         return;
     }
@@ -296,20 +298,16 @@ DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(GrGpuBufferTransferTest,
         } else {
             gpu->transferFromBufferToBuffer(srcBuffer, srcOffset, vb, vbOffset, kTotalSize);
         }
-        if (useTask) {
-            // Buffer update tasks can be arbitrarily reordered currently so we insert a flush.
-            dc->flush();
-        }
         return vb;
     };
 
-    auto sdc = skgpu::v1::SurfaceDrawContext::Make(dc,
-                                                   GrColorType::kRGBA_8888,
-                                                   nullptr,
-                                                   SkBackingFit::kExact,
-                                                   {1, 1},
-                                                   SkSurfaceProps{},
-                                                   std::string_view{});
+    auto sdc = skgpu::ganesh::SurfaceDrawContext::Make(dc,
+                                                       GrColorType::kRGBA_8888,
+                                                       nullptr,
+                                                       SkBackingFit::kExact,
+                                                       {1, 1},
+                                                       SkSurfaceProps{},
+                                                       std::string_view{});
     if (!sdc) {
         ERRORF(reporter, "Could not create draw context");
         return;
@@ -374,7 +372,7 @@ DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(GrGpuBufferTransferTest,
 DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(GrGpuBufferUpdateDataTest,
                                        reporter,
                                        ctxInfo,
-                                       CtsEnforcement::kApiLevel_T) {
+                                       CtsEnforcement::kApiLevel_U) {
     GrDirectContext* dc = ctxInfo.directContext();
 
     GrGpu* gpu = ctxInfo.directContext()->priv().getGpu();
@@ -382,13 +380,13 @@ DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(GrGpuBufferUpdateDataTest,
     static constexpr SkPoint kUnitQuad[] {{0, 0}, {0, 1}, {1, 0},
                                           {1, 0}, {0, 1}, {1, 1}};
 
-    auto sdc = skgpu::v1::SurfaceDrawContext::Make(dc,
-                                                   GrColorType::kRGBA_8888,
-                                                   nullptr,
-                                                   SkBackingFit::kExact,
-                                                   {1, 1},
-                                                   SkSurfaceProps{},
-                                                   std::string_view{});
+    auto sdc = skgpu::ganesh::SurfaceDrawContext::Make(dc,
+                                                       GrColorType::kRGBA_8888,
+                                                       nullptr,
+                                                       SkBackingFit::kExact,
+                                                       {1, 1},
+                                                       SkSurfaceProps{},
+                                                       std::string_view{});
     if (!sdc) {
         ERRORF(reporter, "Could not create draw context");
         return;

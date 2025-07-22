@@ -21,7 +21,6 @@
 #include "include/core/SkSize.h"
 #include "include/core/SkString.h"
 #include "include/core/SkTypes.h"
-#include "include/utils/SkAnimCodecPlayer.h"
 #include "tests/CodecPriv.h"
 #include "tests/Test.h"
 #include "tools/Resources.h"
@@ -54,6 +53,7 @@ DEF_TEST(Codec_565, r) {
         return;
     }
     std::unique_ptr<SkCodec> codec(SkCodec::MakeFromData(std::move(data)));
+    REPORTER_ASSERT(r, codec);
     auto info = codec->getInfo().makeColorType(kRGB_565_SkColorType);
     SkBitmap bm;
     bm.allocPixels(info);
@@ -208,7 +208,9 @@ DEF_TEST(Codec_frames, r) {
         },
 
         { "images/arrow.png",  1, {}, {}, {}, 0, {}, {}, {}, {} },
+#if defined(SK_CODEC_DECODES_ICO)
         { "images/google_chrome.ico", 1, {}, {}, {}, 0, {}, {}, {}, {} },
+#endif
         { "images/brickwork-texture.jpg", 1, {}, {}, {}, 0, {}, {}, {}, {} },
 #if defined(SK_CODEC_DECODES_RAW) && (!defined(_WIN32))
         { "images/dng_with_preview.dng", 1, {}, {}, {}, 0, {}, {}, {}, {} },
@@ -248,6 +250,7 @@ DEF_TEST(Codec_frames, r) {
     };
 
     for (const auto& rec : gRecs) {
+        skiatest::ReporterContext context(r, rec.fName);
         sk_sp<SkData> data(GetResourceAsData(rec.fName));
         if (!data) {
             // Useful error statement, but sometimes people run tests without
@@ -584,6 +587,10 @@ DEF_TEST(EncodedOriginToMatrixTest, r) {
     }
 }
 
+#if defined(SK_ENABLE_SKOTTIE)
+
+#include "modules/skresources/src/SkAnimCodecPlayer.h"
+
 DEF_TEST(AnimCodecPlayer, r) {
     static constexpr struct {
         const char* fFile;
@@ -626,3 +633,5 @@ DEF_TEST(AnimCodecPlayer, r) {
                         "Mismatched size for frame at 500 ms of %s", test.fFile);
     }
 }
+
+#endif

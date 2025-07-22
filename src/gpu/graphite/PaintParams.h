@@ -10,13 +10,20 @@
 
 #include "include/core/SkColor.h"
 #include "include/core/SkPaint.h"
+#include "src/gpu/graphite/Caps.h"
+#include "src/gpu/graphite/geom/NonMSAAClip.h"
 
-class SkPaintParamsKeyBuilder;
-class SkPipelineDataGatherer;
+class SkColorInfo;
 class SkShader;
-class SkKeyContext;
 
 namespace skgpu::graphite {
+
+class DrawContext;
+class KeyContext;
+class PaintParamsKeyBuilder;
+class PipelineDataGatherer;
+class Recorder;
+class TextureProxy;
 
 // TBD: If occlusion culling is eliminated as a phase, we can easily move the paint conversion
 // back to Device when the command is recorded (similar to SkPaint -> GrPaint), and then
@@ -26,15 +33,12 @@ namespace skgpu::graphite {
 // assumed to be anti-aliased.
 class PaintParams {
 public:
-    PaintParams(const SkColor4f& color,
-                sk_sp<SkBlender> finalBlender,
-                sk_sp<SkShader>,
-                sk_sp<SkColorFilter>,
-                sk_sp<SkBlender> primitiveBlender,
-                bool skipColorXform);
     explicit PaintParams(const SkPaint&,
-                         sk_sp<SkBlender> primitiveBlender = nullptr,
-                         bool skipColorXform = false);
+                         sk_sp<SkBlender> primitiveBlender,
+                         const NonMSAAClip& nonMSAAClip,
+                         sk_sp<SkShader> clipShader,
+                         bool dstReadRequired,
+                         bool skipColorXform);
 
     PaintParams(const PaintParams&);
     ~PaintParams();
@@ -56,13 +60,28 @@ public:
     SkBlender* primitiveBlender() const { return fPrimitiveBlender.get(); }
     sk_sp<SkBlender> refPrimitiveBlender() const;
 
+    bool dstReadRequired() const { return fDstReadRequired; }
     bool skipColorXform() const { return fSkipColorXform; }
+    bool dither() const { return fDither; }
 
-    void toKey(const SkKeyContext&,
-               SkPaintParamsKeyBuilder*,
-               SkPipelineDataGatherer*) const;
+    /** Converts an SkColor4f to the destination color space. */
+    static SkColor4f Color4fPrepForDst(SkColor4f srgb, const SkColorInfo& dstColorInfo);
+
+    void toKey(const KeyContext&, PaintParamsKeyBuilder*, PipelineDataGatherer*) const;
+
+    void notifyImagesInUse(Recorder*, DrawContext*) const;
 
 private:
+    void addPaintColorToKey(const KeyContext&, PaintParamsKeyBuilder*, PipelineDataGatherer*) const;
+    void handlePrimitiveColor(const KeyContext&,
+                              PaintParamsKeyBuilder*,
+                              PipelineDataGatherer*) const;
+    void handlePaintAlpha(const KeyContext&, PaintParamsKeyBuilder*, PipelineDataGatherer*) const;
+    void handleColorFilter(const KeyContext&, PaintParamsKeyBuilder*, PipelineDataGatherer*) const;
+    void handleDithering(const KeyContext&, PaintParamsKeyBuilder*, PipelineDataGatherer*) const;
+    void handleDstRead(const KeyContext&, PaintParamsKeyBuilder*, PipelineDataGatherer*) const;
+    void handleClipping(const KeyContext&, PaintParamsKeyBuilder*, PipelineDataGatherer*) const;
+
     SkColor4f            fColor;
     sk_sp<SkBlender>     fFinalBlender; // A nullptr here means SrcOver blending
     sk_sp<SkShader>      fShader;
@@ -71,12 +90,22 @@ private:
     // In the case where there is primitive blending, the primitive color is the source color and
     // the dest is the paint's color (or the paint's shader's computed color).
     sk_sp<SkBlender>     fPrimitiveBlender;
+    NonMSAAClip          fNonMSAAClip;
+    sk_sp<SkShader>      fClipShader;
+    bool                 fDstReadRequired;
     bool                 fSkipColorXform;
-
-    // TODO: Will also store ColorFilter, dither, and any extra shader from an
-    // active clipShader().
+    bool                 fDither;
 };
 
-} // namespace skgpu
+// Add a fixed blend mode node for a specific SkBlendMode.
+void AddFixedBlendMode(const KeyContext&,
+                       PaintParamsKeyBuilder*,
+                       PipelineDataGatherer*,
+                       SkBlendMode);
+// Add a blend mode node for an SkBlendMode that can vary
+void AddBlendMode(const KeyContext&, PaintParamsKeyBuilder*, PipelineDataGatherer*, SkBlendMode);
+void AddDitherBlock(const KeyContext&, PaintParamsKeyBuilder*, PipelineDataGatherer*, SkColorType);
+
+} // namespace skgpu::graphite
 
 #endif // skgpu_PaintParams_DEFINED

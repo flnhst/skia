@@ -14,6 +14,7 @@
 #include "include/core/SkRefCnt.h"
 #include "include/core/SkScalar.h"
 #include "include/core/SkTypes.h"
+#include "include/private/base/SkFloatingPoint.h"
 #include "src/core/SkPathEffectBase.h"
 #include "src/core/SkReadBuffer.h"
 #include "src/core/SkWriteBuffer.h"
@@ -150,7 +151,6 @@ public:
             }
             prevVerb = verb;
         }
-        return true;
     }
 
     bool computeFastBounds(SkRect*) const override {
@@ -179,7 +179,7 @@ private:
 //////////////////////////////////////////////////////////////////////////////////////////////////
 
 sk_sp<SkPathEffect> SkCornerPathEffect::Make(SkScalar radius) {
-    return SkScalarIsFinite(radius) && (radius > 0) ?
+    return SkIsFinite(radius) && (radius > 0) ?
             sk_sp<SkPathEffect>(new SkCornerPathEffectImpl(radius)) : nullptr;
 }
 

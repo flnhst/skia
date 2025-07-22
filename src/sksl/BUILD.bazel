@@ -1,10 +1,12 @@
-load("//bazel:macros.bzl", "bool_flag", "exports_files_legacy", "selects", "skia_cc_deps", "split_srcs_and_hdrs")
+load("//bazel:skia_rules.bzl", "skia_cc_library", "skia_filegroup", "split_srcs_and_hdrs")
+
+package(
+    default_applicable_licenses = ["//:license"],
+)
 
 licenses(["notice"])
 
-exports_files_legacy()
-
-filegroup(
+skia_filegroup(
     name = "txts",
     srcs = [
         "generated/sksl_compute.minified.sksl",
@@ -15,8 +17,12 @@ filegroup(
         "generated/sksl_gpu.unoptimized.sksl",
         "generated/sksl_graphite_frag.minified.sksl",
         "generated/sksl_graphite_frag.unoptimized.sksl",
+        "generated/sksl_graphite_frag_es2.minified.sksl",
+        "generated/sksl_graphite_frag_es2.unoptimized.sksl",
         "generated/sksl_graphite_vert.minified.sksl",
         "generated/sksl_graphite_vert.unoptimized.sksl",
+        "generated/sksl_graphite_vert_es2.minified.sksl",
+        "generated/sksl_graphite_vert_es2.unoptimized.sksl",
         "generated/sksl_public.minified.sksl",
         "generated/sksl_public.unoptimized.sksl",
         "generated/sksl_rt_shader.minified.sksl",
@@ -28,7 +34,42 @@ filegroup(
     ],
 )
 
-CORE_SRCS = [
+skia_filegroup(
+    name = "sksl_data",
+    srcs = [
+        "sksl_compute.sksl",
+        "sksl_frag.sksl",
+        "sksl_gpu.sksl",
+        "sksl_graphite_frag.sksl",
+        "sksl_graphite_frag_es2.sksl",
+        "sksl_graphite_vert.sksl",
+        "sksl_graphite_vert_es2.sksl",
+        "sksl_public.sksl",
+        "sksl_rt_shader.sksl",
+        "sksl_shared.sksl",
+        "sksl_vert.sksl",
+    ],
+    visibility = ["//tools/sksl-minify:__pkg__"],
+)
+
+# Two separate groups, for selecting implementation (and for exporting to sksl.gni)
+skia_filegroup(
+    name = "sksl_skslc_module_srcs",
+    srcs = [
+        "SkSLModuleDataFile.cpp",
+    ],
+    visibility = ["//src/core:__pkg__"],
+)
+
+skia_filegroup(
+    name = "sksl_default_module_srcs",
+    srcs = [
+        "SkSLModuleDataDefault.cpp",
+    ],
+    visibility = ["//src/core:__pkg__"],
+)
+
+SKSL_SRCS = [
     "SkSLAnalysis.cpp",
     "SkSLAnalysis.h",
     "SkSLBuiltinTypes.cpp",
@@ -39,7 +80,9 @@ CORE_SRCS = [
     "SkSLConstantFolder.h",
     "SkSLContext.cpp",
     "SkSLContext.h",
+    "SkSLDefines.h",
     "SkSLErrorReporter.cpp",
+    "SkSLErrorReporter.h",
     "SkSLFileOutputStream.h",
     "SkSLGLSL.h",
     "SkSLInliner.cpp",
@@ -52,10 +95,12 @@ CORE_SRCS = [
     "SkSLMangler.h",
     "SkSLMemoryLayout.h",
     "SkSLMemoryPool.h",
-    "SkSLModifiersPool.h",
+    "SkSLModule.cpp",
+    "SkSLModule.h",
     "SkSLModuleLoader.cpp",
     "SkSLModuleLoader.h",
     "SkSLOperator.cpp",
+    "SkSLOperator.h",
     "SkSLOutputStream.cpp",
     "SkSLOutputStream.h",
     "SkSLParser.cpp",
@@ -63,101 +108,74 @@ CORE_SRCS = [
     "SkSLPool.cpp",
     "SkSLPool.h",
     "SkSLPosition.cpp",
+    "SkSLPosition.h",
+    "SkSLProgramKind.h",
     "SkSLProgramSettings.h",
     "SkSLSampleUsage.cpp",
     "SkSLString.cpp",
+    "SkSLString.h",
     "SkSLStringStream.h",
-    "SkSLThreadContext.cpp",
-    "SkSLThreadContext.h",
     "SkSLUtil.cpp",
     "SkSLUtil.h",
     "spirv.h",
 ]
 
 split_srcs_and_hdrs(
-    name = "core",
-    files = CORE_SRCS,
+    name = "sksl",
+    files = SKSL_SRCS,
 )
 
-selects.config_setting_group(
-    name = "needs_sksl",
-    match_any = [
-        "//src/gpu:has_gpu_backend",
-        ":enable_sksl_true",
-    ],
-    visibility = ["//:__subpackages__"],
-)
-
-selects.config_setting_group(
-    name = "use_sksl_gpu_srcs",
-    match_any = [
-        "//src/gpu:has_gpu_backend",
-        ":enable_skslc_true",
-    ],
-    visibility = ["//:__subpackages__"],
-)
-
-bool_flag(
-    name = "enable_sksl",
-    default = False,
-)
-
-bool_flag(
-    name = "enable_skslc",
-    default = False,
-)
-
-bool_flag(
-    name = "enable_sksl_tracing",
-    default = False,
-)
-
-filegroup(
-    name = "srcs",
+skia_filegroup(
+    name = "gpu_hdrs",
     srcs = [
-        ":core_srcs",
-        "//src/sksl/analysis:srcs",
-        "//src/sksl/codegen:srcs",
-        "//src/sksl/dsl:srcs",
-        "//src/sksl/ir:srcs",
-        "//src/sksl/tracing:srcs",
-        "//src/sksl/transform:srcs",
+        "GLSL.std.450.h",
     ],
-    visibility = ["//src:__pkg__"],
+    visibility = ["//src/sksl/codegen:__pkg__"],
 )
 
-filegroup(
-    name = "private_hdrs",
+skia_filegroup(
+    name = "core_srcs",
     srcs = [
-        ":core_hdrs",
-        "//src/sksl/analysis:private_hdrs",
-        "//src/sksl/codegen:private_hdrs",
-        "//src/sksl/dsl:private_hdrs",
-        "//src/sksl/ir:private_hdrs",
-        "//src/sksl/tracing:private_hdrs",
-        "//src/sksl/transform:private_hdrs",
-    ] + select({
-        ":use_sksl_gpu_srcs": [
-            "GLSL.std.450.h",
-        ],
-        "//conditions:default": [],
-    }),
-    visibility = ["//src:__pkg__"],
+        ":sksl_graphite_modules_hdrs",
+        ":sksl_srcs",
+        "//src/sksl/analysis:analysis_srcs",
+        "//src/sksl/ir:ir_srcs",
+        "//src/sksl/tracing:core_srcs",
+        "//src/sksl/transform:transform_srcs",
+    ],
+    visibility = ["//src/core:__pkg__"],
 )
 
-skia_cc_deps(
-    name = "deps",
-    textual_hdrs = [
-        ":txts",
+skia_filegroup(
+    name = "core_priv_hdrs",
+    srcs = [
+        ":sksl_hdrs",
+        "//src/sksl/analysis:analysis_hdrs",
+        "//src/sksl/ir:ir_hdrs",
+        "//src/sksl/tracing:core_priv_hdrs",
+        "//src/sksl/transform:transform_hdrs",
     ],
-    visibility = ["//src:__pkg__"],
-    deps = [
-        "//src/sksl/codegen:deps",
-    ] + select({
-        "//src/sksl:enable_skslc_true": [
-            "@spirv_tools",
-            "@dawn//:tint",
-        ],
-        "//conditions:default": [],
-    }),
+    visibility = ["//src/core:__pkg__"],
+)
+
+skia_cc_library(
+    name = "generated_sksl",
+    textual_hdrs = [":txts"],
+    visibility = ["//src/core:__pkg__"],
+)
+
+skia_filegroup(
+    name = "sksl_graphite_modules_hdrs",
+    srcs = [
+        "SkSLGraphiteModules.h",
+    ],
+    visibility = ["//src/gpu/graphite:__pkg__"],
+)
+
+skia_filegroup(
+    name = "sksl_graphite_modules_srcs",
+    srcs = [
+        "SkSLGraphiteModules.cpp",
+    ],
+    visibility = ["//src/gpu/graphite:__pkg__"],
 )

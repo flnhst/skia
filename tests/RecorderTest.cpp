@@ -16,7 +16,7 @@
 #include "include/core/SkScalar.h"
 #include "include/core/SkShader.h"
 #include "include/core/SkSurface.h"
-#include "include/private/SkMalloc.h"
+#include "include/private/base/SkMalloc.h"
 #include "src/core/SkRecord.h"
 #include "src/core/SkRecorder.h"
 #include "src/core/SkRecords.h"
@@ -82,7 +82,7 @@ DEF_TEST(Recorder_drawImage_takeReference, reporter) {
 
     sk_sp<SkImage> image;
     {
-        auto surface(SkSurface::MakeRasterN32Premul(100, 100));
+        auto surface(SkSurfaces::Raster(SkImageInfo::MakeN32Premul(100, 100)));
         surface->getCanvas()->clear(SK_ColorGREEN);
         image = surface->makeImageSnapshot();
     }
@@ -98,7 +98,7 @@ DEF_TEST(Recorder_drawImage_takeReference, reporter) {
         Tally tally;
         tally.apply(record);
 
-        REPORTER_ASSERT(reporter, 1 == tally.count<SkRecords::DrawImage>());
+        REPORTER_ASSERT(reporter, 1 == tally.count<SkRecords::DrawImageRect>());
     }
     REPORTER_ASSERT(reporter, image->unique());
 

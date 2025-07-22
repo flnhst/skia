@@ -24,16 +24,19 @@
 #include "include/core/SkTextBlob.h"
 #include "include/core/SkTypeface.h"
 #include "include/core/SkTypes.h"
-#include "include/gpu/GrDirectContext.h"
+#include "include/gpu/GpuTypes.h"
+#include "include/gpu/ganesh/GrDirectContext.h"
+#include "include/gpu/ganesh/SkSurfaceGanesh.h"
 #include "src/core/SkDevice.h"
 #include "src/core/SkScalerContext.h"
 #include "src/text/GlyphRun.h"
-#include "src/text/gpu/SDFTControl.h"
 #include "src/text/gpu/SubRunAllocator.h"
+#include "src/text/gpu/SubRunControl.h"
 #include "src/text/gpu/TextBlob.h"
 #include "tests/CtsEnforcement.h"
 #include "tests/Test.h"
 #include "tools/ToolUtils.h"
+#include "tools/fonts/FontToolUtils.h"
 
 #include <cmath>
 #include <cstddef>
@@ -55,7 +58,7 @@ SkBitmap rasterize_blob(SkTextBlob* blob,
                         const SkMatrix& matrix) {
     const SkImageInfo info =
             SkImageInfo::Make(500, 500, kN32_SkColorType, kPremul_SkAlphaType);
-    auto surface = SkSurface::MakeRenderTarget(rContext, SkBudgeted::kNo, info);
+    auto surface = SkSurfaces::RenderTarget(rContext, skgpu::Budgeted::kNo, info);
     auto canvas = surface->getCanvas();
     canvas->drawColor(SK_ColorWHITE);
     canvas->concat(matrix);
@@ -81,7 +84,7 @@ DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(GrTextBlobScaleAnimation,
                                        reporter,
                                        ctxInfo,
                                        CtsEnforcement::kApiLevel_T) {
-    auto tf = ToolUtils::create_portable_typeface("Mono", SkFontStyle());
+    auto tf = ToolUtils::CreatePortableTypeface("Mono", SkFontStyle());
     SkFont font{tf};
     font.setHinting(SkFontHinting::kNormal);
     font.setSize(12);
@@ -112,7 +115,7 @@ DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(GrTextBlobMoveAround,
                                        reporter,
                                        ctxInfo,
                                        CtsEnforcement::kApiLevel_T) {
-    auto tf = ToolUtils::create_portable_typeface("Mono", SkFontStyle());
+    auto tf = ToolUtils::CreatePortableTypeface("Mono", SkFontStyle());
     SkFont font{tf};
     font.setHinting(SkFontHinting::kNormal);
     font.setSize(12);
@@ -135,7 +138,7 @@ DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(GrTextBlobMoveAround,
         SkPaint paint;
         const SkImageInfo info =
                 SkImageInfo::Make(350, 80, kN32_SkColorType, kPremul_SkAlphaType);
-        auto surface = SkSurface::MakeRenderTarget(dContext, SkBudgeted::kNo, info);
+        auto surface = SkSurfaces::RenderTarget(dContext, skgpu::Budgeted::kNo, info);
         auto canvas = surface->getCanvas();
         canvas->drawColor(SK_ColorWHITE);
         canvas->concat(matrix);
@@ -352,7 +355,7 @@ using TextBlob = sktext::gpu::TextBlob;
 
 DEF_TEST(KeyEqualityOnPerspective, r) {
     SkTextBlobBuilder builder;
-    SkFont font(SkTypeface::MakeDefault(), 16);
+    SkFont font(ToolUtils::DefaultTypeface(), 16);
     auto runBuffer = builder.allocRun(font, 1, 0.0f, 0.0f);
     runBuffer.glyphs[0] = 3;
     auto blob = builder.make();
@@ -362,7 +365,11 @@ DEF_TEST(KeyEqualityOnPerspective, r) {
 
     // Build the strike device.
     SkSurfaceProps props;
-    sktext::gpu::SDFTControl control(false, false, false, 1, 100);
+#if !defined(SK_DISABLE_SDF_TEXT)
+    sktext::gpu::SubRunControl control(false, false, false, 1, 100);
+#else
+    sktext::gpu::SubRunControl control{};
+#endif
     SkStrikeDeviceInfo strikeDevice{props, SkScalerContextFlags::kBoostContrast, &control};
     SkMatrix matrix1;
     matrix1.setAll(1, 0, 0, 0, 1, 0, 1, 1, 1);

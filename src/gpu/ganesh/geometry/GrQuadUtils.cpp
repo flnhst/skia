@@ -4,14 +4,21 @@
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
-
 #include "src/gpu/ganesh/geometry/GrQuadUtils.h"
 
+#include "include/core/SkPoint.h"
 #include "include/core/SkRect.h"
-#include "include/private/SkVx.h"
+#include "include/core/SkScalar.h"
+#include "include/core/SkTypes.h"
+#include "include/private/base/SkFloatingPoint.h"
+#include "include/private/base/SkMacros.h"
 #include "include/private/gpu/ganesh/GrTypesPriv.h"
+#include "src/base/SkVx.h"
 #include "src/core/SkPathPriv.h"
 #include "src/gpu/ganesh/geometry/GrQuad.h"
+
+#include <algorithm>
+#include <cmath>
 
 using float4 = skvx::float4;
 using mask4  = skvx::int4; // aliased to 'mask' to emphasize that it will hold boolean SIMD masks.
@@ -847,13 +854,13 @@ int TessellationHelper::EdgeEquations::computeDegenerateQuad(const float4& signe
         for (int i = 0; i < 4; ++i) {
             // Note that we would not have taken this branch if any point failed both of its edges
             // tests. That is, it can't be the case that d1v0[i] and d2v0[i] are both true.
-            if (dists1[i] < -kDistTolerance && abs(eDenom[0]) > kTolerance) {
+            if (dists1[i] < -kDistTolerance && std::abs(eDenom[0]) > kTolerance) {
                 px[i] = ex[0];
                 py[i] = ey[0];
             } else if (d1v0[i]) {
                 px[i] = avgX[i % 2];
                 py[i] = avgY[i % 2];
-            } else if (dists2[i] < -kDistTolerance && abs(eDenom[1]) > kTolerance) {
+            } else if (dists2[i] < -kDistTolerance && std::abs(eDenom[1]) > kTolerance) {
                 px[i] = ex[1];
                 py[i] = ey[1];
             } else if (d2v0[i]) {
@@ -1265,4 +1272,4 @@ int TessellationHelper::adjustDegenerateVertices(const skvx::Vec<4, float>& sign
     }
 }
 
-}; // namespace GrQuadUtils
+} // namespace GrQuadUtils

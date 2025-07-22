@@ -5,24 +5,29 @@
  * found in the LICENSE file.
  */
 
-
 #include "src/gpu/ganesh/vk/GrVkTexture.h"
 
+#include "include/core/SkSize.h"
+#include "include/gpu/GpuTypes.h"
+#include "include/gpu/MutableTextureState.h"
+#include "include/gpu/ganesh/vk/GrVkTypes.h"
+#include "include/gpu/vk/VulkanTypes.h"
+#include "include/private/base/SkAssert.h"
+#include "include/private/base/SkTo.h"
+#include "src/gpu/ganesh/GrAttachment.h"
+#include "src/gpu/ganesh/GrSurface.h"
 #include "src/gpu/ganesh/GrTexture.h"
+#include "src/gpu/ganesh/vk/GrVkBackendSurfacePriv.h"
 #include "src/gpu/ganesh/vk/GrVkDescriptorSet.h"
 #include "src/gpu/ganesh/vk/GrVkGpu.h"
-#include "src/gpu/ganesh/vk/GrVkImageView.h"
-#include "src/gpu/ganesh/vk/GrVkTextureRenderTarget.h"
 #include "src/gpu/ganesh/vk/GrVkUtil.h"
-#include "src/gpu/vk/VulkanUtils.h"
-
-#include "include/gpu/vk/GrVkTypes.h"
+#include "src/gpu/vk/VulkanUtilsPriv.h"
 
 #define VK_CALL(GPU, X) GR_VK_CALL(GPU->vkInterface(), X)
 
 // Because this class is virtually derived from GrSurface we must explicitly call its constructor.
 GrVkTexture::GrVkTexture(GrVkGpu* gpu,
-                         SkBudgeted budgeted,
+                         skgpu::Budgeted budgeted,
                          SkISize dimensions,
                          sk_sp<GrVkImage> texture,
                          GrMipmapStatus mipmapStatus,
@@ -103,9 +108,11 @@ GrVkTexture::GrVkTexture(GrVkGpu* gpu,
     SkASSERT(SkToBool(fTexture->vkUsageFlags() & VK_IMAGE_USAGE_SAMPLED_BIT));
 }
 
-sk_sp<GrVkTexture> GrVkTexture::MakeNewTexture(GrVkGpu* gpu, SkBudgeted budgeted,
+sk_sp<GrVkTexture> GrVkTexture::MakeNewTexture(GrVkGpu* gpu,
+                                               skgpu::Budgeted budgeted,
                                                SkISize dimensions,
-                                               VkFormat format, uint32_t mipLevels,
+                                               VkFormat format,
+                                               uint32_t mipLevels,
                                                GrProtected isProtected,
                                                GrMipmapStatus mipmapStatus,
                                                std::string_view label) {
@@ -123,7 +130,7 @@ sk_sp<GrVkTexture> GrVkTexture::MakeNewTexture(GrVkGpu* gpu, SkBudgeted budgeted
 sk_sp<GrVkTexture> GrVkTexture::MakeWrappedTexture(
         GrVkGpu* gpu, SkISize dimensions, GrWrapOwnership wrapOwnership, GrWrapCacheable cacheable,
         GrIOType ioType, const GrVkImageInfo& info,
-        sk_sp<skgpu::MutableTextureStateRef> mutableState) {
+        sk_sp<skgpu::MutableTextureState> mutableState) {
     // Adopted textures require both image and allocation because we're responsible for freeing
     SkASSERT(VK_NULL_HANDLE != info.fImage &&
              (kBorrow_GrWrapOwnership == wrapOwnership || VK_NULL_HANDLE != info.fAlloc.fMemory));
@@ -191,8 +198,10 @@ void GrVkTexture::onAbandon() {
 }
 
 GrBackendTexture GrVkTexture::getBackendTexture() const {
-    return GrBackendTexture(fTexture->width(), fTexture->height(), fTexture->vkImageInfo(),
-                            fTexture->getMutableState());
+    return GrBackendTextures::MakeVk(fTexture->width(),
+                                     fTexture->height(),
+                                     fTexture->vkImageInfo(),
+                                     fTexture->getMutableState());
 }
 
 GrVkGpu* GrVkTexture::getVkGpu() const {

@@ -20,6 +20,7 @@ describe('Canvas Behavior', () => {
         paint.setAntiAlias(true);
         paint.setColor(CanvasKit.Color(0, 0, 0, 1.0));
         paint.setStyle(CanvasKit.PaintStyle.Stroke);
+        paint.setDither(false);
 
         canvas.drawLine(3, 10, 30, 15, paint);
         const rrect = CanvasKit.RRectXY([5, 35, 45, 80], 15, 10);
@@ -29,7 +30,7 @@ describe('Canvas Behavior', () => {
 
         canvas.drawArc(CanvasKit.LTRBRect(55, 35, 95, 80), 15, 270, true, paint);
 
-        const font = new CanvasKit.Font(null, 20);
+        const font = new CanvasKit.Font(CanvasKit.Typeface.GetDefault(), 20);
         canvas.drawText('this is ascii text', 5, 100, paint, font);
 
         const blob = CanvasKit.TextBlob.MakeFromText('Unicode chars 💩 é É ص', font);
@@ -49,7 +50,7 @@ describe('Canvas Behavior', () => {
         textPaint.setColor(CanvasKit.Color(40, 0, 0, 1.0));
         textPaint.setAntiAlias(true);
 
-        const textFont = new CanvasKit.Font(null, 30);
+        const textFont = new CanvasKit.Font(CanvasKit.Typeface.GetDefault(), 30);
 
         const dpe = CanvasKit.PathEffect.MakeDash([15, 5, 5, 10], 1);
 
@@ -282,7 +283,7 @@ describe('Canvas Behavior', () => {
         const textPaint = new CanvasKit.Paint();
         textPaint.setAntiAlias(true);
 
-        const textFont = new CanvasKit.Font(null, 10);
+        const textFont = new CanvasKit.Font(CanvasKit.Typeface.GetDefault(), 10);
 
         let x = 10;
         let y = 20;
@@ -531,6 +532,33 @@ describe('Canvas Behavior', () => {
         bluePaint.delete();
     });
 
+    gm('savelayerrec_canvas_backdrop_tilemode', (canvas) => {
+        // Note: fiddle.skia.org quietly draws a white background before doing
+        // other things, which is noticed in cases like this where we use saveLayer
+        // with the rec struct.
+        canvas.scale(8, 8);
+        const redPaint = new CanvasKit.Paint();
+        redPaint.setColor(CanvasKit.RED);
+        redPaint.setAntiAlias(true);
+        canvas.drawCircle(21, 21, 8, redPaint);
+
+        const bluePaint = new CanvasKit.Paint();
+        bluePaint.setColor(CanvasKit.BLUE);
+        canvas.drawCircle(31, 21, 8, bluePaint);
+
+        const blurIF = CanvasKit.ImageFilter.MakeBlur(8, 0.2, CanvasKit.TileMode.Decal, null);
+
+        const count = canvas.saveLayer(null, null, blurIF, 0, CanvasKit.TileMode.Decal);
+        expect(count).toEqual(1);
+        canvas.scale(1/4, 1/4);
+        canvas.drawCircle(125, 85, 8, redPaint);
+        canvas.restore();
+
+        blurIF.delete();
+        redPaint.delete();
+        bluePaint.delete();
+    });
+
     gm('drawpoints_canvas', (canvas) => {
         const paint = new CanvasKit.Paint();
         paint.setAntiAlias(true);
@@ -759,6 +787,23 @@ describe('Canvas Behavior', () => {
             0       ,  0       , 0,  1       ], matr);
     });
 
+    it('can quickly tell if a rect is in the current clip region', () => {
+      const canvas = new CanvasKit.Canvas(200, 200);
+
+      canvas.save();
+      const rejectWithNoClip = canvas.quickReject(CanvasKit.LTRBRect(10, 10, 20, 20));
+      expect(rejectWithNoClip).toBeFalse();
+      canvas.restore();
+
+      canvas.save();
+      canvas.clipRect(CanvasKit.LTRBRect(10, 10, 20, 20), CanvasKit.ClipOp.Intersect, false);
+      const rejectPartiallyInsideClip = canvas.quickReject(CanvasKit.LTRBRect(15, 15, 25, 25));
+      expect(rejectPartiallyInsideClip).toBeFalse();
+      const rejectEntirelyOutsideClip = canvas.quickReject(CanvasKit.LTRBRect(30, 30, 50, 50));
+      expect(rejectEntirelyOutsideClip).toBeTrue();
+      canvas.restore();
+    });
+
     it('can accept a 3x2 matrix', () => {
         const canvas = new CanvasKit.Canvas();
 
@@ -850,66 +895,6 @@ describe('Canvas Behavior', () => {
         canvas.drawPath(path, paint);
         paint.delete();
         path.delete();
-    });
-
-    gm('particles_canvas', (canvas) => {
-        canvas.clear(CanvasKit.BLACK);
-
-        const curveParticles = {
-            'MaxCount': 1000,
-            'Drawable': {
-               'Type': 'SkCircleDrawable',
-               'Radius': 2
-            },
-            'Code': [
-               `void effectSpawn(inout Effect effect) {
-                  effect.rate = 200;
-                  effect.color = float4(1, 0, 0, 1);
-                }
-                void spawn(inout Particle p) {
-                  p.lifetime = 3 + rand(p.seed);
-                  p.vel.y = -50;
-                }
-
-                void update(inout Particle p) {
-                  float w = mix(15, 3, p.age);
-                  p.pos.x = sin(radians(p.age * 320)) * mix(25, 10, p.age) + mix(-w, w, rand(p.seed));
-                  if (rand(p.seed) < 0.5) { p.pos.x = -p.pos.x; }
-
-                  p.color.g = (mix(75, 220, p.age) + mix(-30, 30, rand(p.seed))) / 255;
-                }`
-            ],
-            'Bindings': []
-        };
-
-        const particles = CanvasKit.MakeParticles(JSON.stringify(curveParticles));
-        particles.start(0, true);
-        particles.setPosition([0, 0]);
-
-        const paint = new CanvasKit.Paint();
-        paint.setAntiAlias(true);
-        paint.setColor(CanvasKit.WHITE);
-        const font = new CanvasKit.Font(null, 12);
-
-        // Draw a 5x5 set of different times in the particle system
-        // like a filmstrip of motion of particles.
-        const LEFT_MARGIN = 90;
-        const TOP_MARGIN = 100;
-        for (let row = 0; row < 5; row++) {
-            for (let column = 0; column < 5; column++) {
-                canvas.save();
-                canvas.translate(LEFT_MARGIN + column*100, TOP_MARGIN + row*100);
-
-                // Time moves in row-major order in increments of 0.02.
-                const particleTime = row/10 + column/50;
-
-                canvas.drawText('time ' + particleTime.toFixed(2), -30, 20, paint, font);
-                particles.update(particleTime);
-
-                particles.draw(canvas);
-                canvas.restore();
-            }
-        }
     });
 });
 

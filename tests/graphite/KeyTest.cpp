@@ -7,99 +7,89 @@
 
 #include "tests/Test.h"
 
-#include "src/core/SkPaintParamsKey.h"
-#include "src/core/SkShaderCodeDictionary.h"
-
+#include "include/core/SkBlendMode.h"
+#include "src/base/SkArenaAlloc.h"
+#include "src/gpu/Swizzle.h"
 #include "src/gpu/graphite/ContextPriv.h"
+#include "src/gpu/graphite/ContextUtils.h"
+#include "src/gpu/graphite/PaintParamsKey.h"
+#include "src/gpu/graphite/RendererProvider.h"
+#include "src/gpu/graphite/ShaderCodeDictionary.h"
+#include "src/gpu/graphite/ShaderInfo.h"
+
+using namespace skgpu::graphite;
 
 namespace {
 
-SkPaintParamsKey create_key_with_data(SkPaintParamsKeyBuilder* builder,
-                                      int snippetID,
-                                      SkSpan<const uint8_t> dataPayload) {
-    SkDEBUGCODE(builder->checkReset());
-
+void add_block(PaintParamsKeyBuilder* builder, int snippetID) {
     builder->beginBlock(snippetID);
-    builder->addBytes(dataPayload.size(), dataPayload.data());
     builder->endBlock();
-
-    return builder->lockAsKey();
 }
 
-SkPaintParamsKey create_key(SkPaintParamsKeyBuilder* builder, int snippetID, int size) {
-    SkASSERT(size <= 1024);
-    static constexpr uint8_t kDummyData[1024] = {};
-    return create_key_with_data(builder, snippetID, SkSpan(kDummyData, size));
+PaintParamsKey create_key(const ShaderCodeDictionary* dict, int snippetID, SkArenaAlloc* arena) {
+    PaintParamsKeyBuilder builder{dict};
+    add_block(&builder, snippetID);
+
+    AutoLockBuilderAsKey keyView{&builder};
+    return keyView->clone(arena);
+}
+
+bool coeff_equal(SkBlendModeCoeff skCoeff, skgpu::BlendCoeff gpuCoeff) {
+    switch(skCoeff) {
+        case SkBlendModeCoeff::kZero: return skgpu::BlendCoeff::kZero == gpuCoeff;
+        case SkBlendModeCoeff::kOne:  return skgpu::BlendCoeff::kOne == gpuCoeff;
+        case SkBlendModeCoeff::kSC:   return skgpu::BlendCoeff::kSC == gpuCoeff;
+        case SkBlendModeCoeff::kISC:  return skgpu::BlendCoeff::kISC == gpuCoeff;
+        case SkBlendModeCoeff::kDC:   return skgpu::BlendCoeff::kDC == gpuCoeff;
+        case SkBlendModeCoeff::kIDC:  return skgpu::BlendCoeff::kIDC == gpuCoeff;
+        case SkBlendModeCoeff::kSA:   return skgpu::BlendCoeff::kSA == gpuCoeff;
+        case SkBlendModeCoeff::kISA:  return skgpu::BlendCoeff::kISA == gpuCoeff;
+        case SkBlendModeCoeff::kDA:   return skgpu::BlendCoeff::kDA == gpuCoeff;
+        case SkBlendModeCoeff::kIDA:  return skgpu::BlendCoeff::kIDA == gpuCoeff;
+        default:                      return false;
+    }
 }
 
 } // anonymous namespace
 
-// These are intended to be unit tests of the SkPaintParamsKeyBuilder and SkPaintParamsKey.
-DEF_GRAPHITE_TEST_FOR_ALL_CONTEXTS(KeyWithInvalidCodeSnippetIDTest, reporter, context) {
+// These are intended to be unit tests of the PaintParamsKeyBuilder and PaintParamsKey.
+DEF_GRAPHITE_TEST_FOR_ALL_CONTEXTS(KeyWithInvalidCodeSnippetIDTest, reporter, context,
+                                   CtsEnforcement::kApiLevel_V) {
+    SkArenaAlloc arena{256};
+    ShaderCodeDictionary* dict = context->priv().shaderCodeDictionary();
 
-    SkShaderCodeDictionary* dict = context->priv().shaderCodeDictionary();
-    SkPaintParamsKeyBuilder builder(dict);
+    // A builder without any data is invalid. The Builder and the PaintParamKeys can include
+    // invalid IDs without themselves becoming invalid. Normally adding an invalid ID triggers an
+    // assert in debug builds, since the properly functioning key system should never encounter an
+    // invalid ID.
+    PaintParamsKeyBuilder builder(dict);
+    AutoLockBuilderAsKey keyView{&builder};
+    REPORTER_ASSERT(reporter, !keyView->isValid());
+    REPORTER_ASSERT(reporter, !PaintParamsKey::Invalid().isValid());
 
-    // Invalid code snippet ID, key creation fails.
-    SkPaintParamsKey key = create_key(&builder, kBuiltInCodeSnippetIDCount, /*size=*/32);
-    REPORTER_ASSERT(reporter, key.isErrorKey());
+    // However, if the program gets in a malformed state on release builds, the key
+    // could contain an invalid ID. In that case the invalid snippet IDs are detected when
+    // reconstructing the key into an effect tree for SkSL generation. To test this, we manually
+    // construct an invalid span and test that it returns a null shader node tree when treated as
+    // a PaintParamsKey.
+    // NOTE: This is intentionally abusing memory to create a corrupt scenario and is dependent on
+    // the structure of PaintParamsKey (just SkSpan<const int32_t>).
+    int32_t invalidKeyData[3] = {(int32_t) BuiltInCodeSnippetID::kSolidColorShader,
+                                 SkKnownRuntimeEffects::kSkiaBuiltInReservedCnt - 1,
+                                 (int32_t) BuiltInCodeSnippetID::kFixedBlend_Src};
+    SkSpan<const int32_t> invalidKeySpan{invalidKeyData, std::size(invalidKeyData)*sizeof(int32_t)};
+    const PaintParamsKey* fakeKey = reinterpret_cast<const PaintParamsKey*>(&invalidKeySpan);
+    REPORTER_ASSERT(reporter, fakeKey->getRootNodes(dict, &arena).empty());
 }
 
-DEF_GRAPHITE_TEST_FOR_ALL_CONTEXTS(KeyValidBlockSizeTest, reporter, context) {
+DEF_GRAPHITE_TEST_FOR_ALL_CONTEXTS(KeyEqualityChecksSnippetID, reporter, context,
+                                   CtsEnforcement::kApiLevel_V) {
+    SkArenaAlloc arena{256};
+    ShaderCodeDictionary* dict = context->priv().shaderCodeDictionary();
 
-    SkShaderCodeDictionary* dict = context->priv().shaderCodeDictionary();
-    SkPaintParamsKeyBuilder builder(dict);
-
-    // _Just_ on the edge of being too big
-    static const int kMaxBlockDataSize = SkPaintParamsKey::kMaxBlockSize -
-                                         sizeof(SkPaintParamsKey::Header);
-    static constexpr SkPaintParamsKey::DataPayloadField kDataFields[] = {
-            {"data", SkPaintParamsKey::DataPayloadType::kByte, kMaxBlockDataSize},
-    };
-
-    int userSnippetID = dict->addUserDefinedSnippet("keyAlmostTooBig", kDataFields);
-    SkPaintParamsKey key = create_key(&builder, userSnippetID, kMaxBlockDataSize);
-
-    // Key is created successfully.
-    REPORTER_ASSERT(reporter, key.sizeInBytes() == SkPaintParamsKey::kMaxBlockSize);
-}
-
-DEF_GRAPHITE_TEST_FOR_ALL_CONTEXTS(KeyTooLargeBlockSizeTest, reporter, context) {
-
-    SkShaderCodeDictionary* dict = context->priv().shaderCodeDictionary();
-    SkPaintParamsKeyBuilder builder(dict);
-
-    // Too big by one byte
-    static const int kBlockDataSize = SkPaintParamsKey::kMaxBlockSize -
-                                      sizeof(SkPaintParamsKey::Header) + 1;
-    static constexpr SkPaintParamsKey::DataPayloadField kDataFields[] = {
-            {"data", SkPaintParamsKey::DataPayloadType::kByte, kBlockDataSize},
-    };
-
-    int userSnippetID = dict->addUserDefinedSnippet("keyTooBig", kDataFields);
-    SkPaintParamsKey key = create_key(&builder, userSnippetID, kBlockDataSize);
-
-    // Key creation fails.
-    REPORTER_ASSERT(reporter, key.isErrorKey());
-}
-
-DEF_GRAPHITE_TEST_FOR_ALL_CONTEXTS(KeyEqualityChecksSnippetID, reporter, context) {
-
-    SkShaderCodeDictionary* dict = context->priv().shaderCodeDictionary();
-    static const int kBlockDataSize = 4;
-    static constexpr SkPaintParamsKey::DataPayloadField kDataFields[] = {
-            {"data", SkPaintParamsKey::DataPayloadType::kByte, kBlockDataSize},
-    };
-
-    int userSnippetID1 = dict->addUserDefinedSnippet("key1", kDataFields);
-    int userSnippetID2 = dict->addUserDefinedSnippet("key2", kDataFields);
-
-    SkPaintParamsKeyBuilder builderA(dict);
-    SkPaintParamsKeyBuilder builderB(dict);
-    SkPaintParamsKeyBuilder builderC(dict);
-    SkPaintParamsKey keyA = create_key(&builderA, userSnippetID1, kBlockDataSize);
-    SkPaintParamsKey keyB = create_key(&builderB, userSnippetID1, kBlockDataSize);
-    SkPaintParamsKey keyC = create_key(&builderC, userSnippetID2, kBlockDataSize);
+    PaintParamsKey keyA = create_key(dict, (int) BuiltInCodeSnippetID::kSolidColorShader, &arena);
+    PaintParamsKey keyB = create_key(dict, (int) BuiltInCodeSnippetID::kSolidColorShader, &arena);
+    PaintParamsKey keyC = create_key(dict, (int) BuiltInCodeSnippetID::kRGBPaintColor, &arena);
 
     // Verify that keyA matches keyB, and that it does not match keyC.
     REPORTER_ASSERT(reporter, keyA == keyB);
@@ -108,75 +98,47 @@ DEF_GRAPHITE_TEST_FOR_ALL_CONTEXTS(KeyEqualityChecksSnippetID, reporter, context
     REPORTER_ASSERT(reporter, !(keyA != keyB));
 }
 
-DEF_GRAPHITE_TEST_FOR_ALL_CONTEXTS(KeyEqualityChecksData, reporter, context) {
+DEF_GRAPHITE_TEST_FOR_ALL_CONTEXTS(ShaderInfoDetectsFixedFunctionBlend, reporter, context,
+                                   CtsEnforcement::kApiLevel_V) {
+    ShaderCodeDictionary* dict = context->priv().shaderCodeDictionary();
 
-    SkShaderCodeDictionary* dict = context->priv().shaderCodeDictionary();
-    static const int kBlockDataSize = 4;
-    static constexpr SkPaintParamsKey::DataPayloadField kDataFields[] = {
-            {"data", SkPaintParamsKey::DataPayloadType::kByte, kBlockDataSize},
-    };
+    for (int bm = 0; bm <= (int) SkBlendMode::kLastCoeffMode; ++bm) {
+        PaintParamsKeyBuilder builder(dict);
+        // Use a solid color as the 1st root node; the 2nd root node represents the final blend.
+        add_block(&builder, (int) BuiltInCodeSnippetID::kSolidColorShader);
+        add_block(&builder, bm + kFixedBlendIDOffset);
+        UniquePaintParamsID paintID = dict->findOrCreate(&builder);
 
-    int userSnippetID = dict->addUserDefinedSnippet("key", kDataFields);
+        const RenderStep* renderStep = &context->priv().rendererProvider()->nonAABounds()->step(0);
+        std::unique_ptr<ShaderInfo> shaderInfo = ShaderInfo::Make(context->priv().caps(),
+                                                                  dict,
+                                                                  /*rteDict=*/nullptr,
+                                                                  renderStep,
+                                                                  paintID,
+                                                                  /*useStorageBuffers=*/false,
+                                                                  skgpu::Swizzle::RGBA());
 
-    static constexpr uint8_t kData [kBlockDataSize] = {1, 2, 3, 4};
-    static constexpr uint8_t kData2[kBlockDataSize] = {1, 2, 3, 99};
+        SkBlendMode expectedBM = static_cast<SkBlendMode>(bm);
+        if (expectedBM == SkBlendMode::kPlus) {
+            // The kPlus "coefficient" blend mode always triggers shader blending to add a clamping
+            // step that was originally elided in Porter-Duff due to automatic saturation to 8-bit
+            // color values. Shader-based blending always uses kSrc HW blending.
+            expectedBM = SkBlendMode::kSrc;
+        }
+        SkBlendModeCoeff expectedSrc, expectedDst;
+        REPORTER_ASSERT(reporter, SkBlendMode_AsCoeff(expectedBM, &expectedSrc, &expectedDst));
+        REPORTER_ASSERT(reporter, coeff_equal(expectedSrc, shaderInfo->blendInfo().fSrcBlend));
+        REPORTER_ASSERT(reporter, coeff_equal(expectedDst, shaderInfo->blendInfo().fDstBlend));
 
-    SkPaintParamsKeyBuilder builderA(dict);
-    SkPaintParamsKeyBuilder builderB(dict);
-    SkPaintParamsKeyBuilder builderC(dict);
-    SkPaintParamsKey keyA = create_key_with_data(&builderA, userSnippetID, kData);
-    SkPaintParamsKey keyB = create_key_with_data(&builderB, userSnippetID, kData);
-    SkPaintParamsKey keyC = create_key_with_data(&builderC, userSnippetID, kData2);
+        REPORTER_ASSERT(reporter, shaderInfo->blendInfo().fEquation == skgpu::BlendEquation::kAdd);
+        REPORTER_ASSERT(reporter,
+                        shaderInfo->blendInfo().fBlendConstant == SK_PMColor4fTRANSPARENT);
 
-    // Verify that keyA matches keyB, and that it does not match keyC.
-    REPORTER_ASSERT(reporter, keyA == keyB);
-    REPORTER_ASSERT(reporter, keyA != keyC);
-    REPORTER_ASSERT(reporter, !(keyA == keyC));
-    REPORTER_ASSERT(reporter, !(keyA != keyB));
+        bool expectedWriteColor = BlendModifiesDst(skgpu::BlendEquation::kAdd,
+                                                   shaderInfo->blendInfo().fSrcBlend,
+                                                   shaderInfo->blendInfo().fDstBlend);
+        REPORTER_ASSERT(reporter, shaderInfo->blendInfo().fWritesColor == expectedWriteColor);
+    }
 }
 
-DEF_GRAPHITE_TEST_FOR_ALL_CONTEXTS(KeyBlockReaderWorks, reporter, context) {
-
-    SkShaderCodeDictionary* dict = context->priv().shaderCodeDictionary();
-    static const int kCountX = 3;
-    static const int kCountY = 2;
-    static const int kCountZ = 7;
-    static constexpr SkPaintParamsKey::DataPayloadField kDataFields[] = {
-            {"ByteX",   SkPaintParamsKey::DataPayloadType::kByte,   kCountX},
-            {"Float4Y", SkPaintParamsKey::DataPayloadType::kFloat4, kCountY},
-            {"IntZ",    SkPaintParamsKey::DataPayloadType::kInt,    kCountZ},
-    };
-
-    int userSnippetID = dict->addUserDefinedSnippet("key", kDataFields);
-
-    static constexpr uint8_t   kDataX[kCountX] = {1, 2, 3};
-    static constexpr SkColor4f kDataY[kCountY] = {{4, 5, 6, 7}, {8, 9, 10, 11}};
-    static constexpr int32_t   kDataZ[kCountZ] = {-1234567, 13, 14, 15, 16, 17, 7654321};
-
-    SkPaintParamsKeyBuilder builder(dict);
-    builder.beginBlock(userSnippetID);
-    builder.addBytes(kCountX, kDataX);
-    builder.add     (kCountY, kDataY);
-    builder.addInts (kCountZ, kDataZ);
-    builder.endBlock();
-
-    SkPaintParamsKey key = builder.lockAsKey();
-
-    // Verify that the block reader can extract out our data from the SkPaintParamsKey.
-    SkPaintParamsKey::BlockReader reader = key.reader(dict, /*headerOffset=*/0);
-    REPORTER_ASSERT(reporter,
-                    reader.blockSize() == (sizeof(SkPaintParamsKey::Header) +
-                                           sizeof(kDataX) + sizeof(kDataY) + sizeof(kDataZ)));
-
-    SkSpan<const uint8_t> readerDataX = reader.bytes(0);
-    REPORTER_ASSERT(reporter, readerDataX.size() == kCountX);
-    REPORTER_ASSERT(reporter, 0 == memcmp(readerDataX.data(), kDataX, sizeof(kDataX)));
-
-    SkSpan<const SkColor4f> readerDataY = reader.colors(1);
-    REPORTER_ASSERT(reporter, readerDataY.size() == kCountY);
-    REPORTER_ASSERT(reporter, 0 == memcmp(readerDataY.data(), kDataY, sizeof(kDataY)));
-
-    SkSpan<const int32_t> readerBytesZ = reader.ints(2);
-    REPORTER_ASSERT(reporter, readerBytesZ.size() == kCountZ);
-    REPORTER_ASSERT(reporter, 0 == memcmp(readerBytesZ.data(), kDataZ, sizeof(kDataZ)));
-}
+// TODO: Add unit tests for converting a complex key to a ShaderInfo

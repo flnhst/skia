@@ -9,8 +9,9 @@
 #define SkIDChangeListener_DEFINED
 
 #include "include/core/SkRefCnt.h"
-#include "include/private/SkMutex.h"
-#include "include/private/SkTArray.h"
+#include "include/private/base/SkMutex.h"
+#include "include/private/base/SkTArray.h"
+#include "include/private/base/SkThreadAnnotations.h"
 
 #include <atomic>
 
@@ -65,7 +66,7 @@ public:
 
     private:
         mutable SkMutex fMutex;
-        SkSTArray<1, sk_sp<SkIDChangeListener>> fListeners SK_GUARDED_BY(fMutex);
+        skia_private::STArray<1, sk_sp<SkIDChangeListener>> fListeners SK_GUARDED_BY(fMutex);
     };
 
 private:

@@ -7,33 +7,46 @@
 
 #include "include/private/SkPathRef.h"
 
+#include "include/core/SkMatrix.h"
 #include "include/core/SkPath.h"
 #include "include/core/SkRRect.h"
-#include "include/private/SkOnce.h"
-#include "include/private/SkTo.h"
-#include "include/private/SkVx.h"
-#include "src/core/SkBuffer.h"
+#include "include/private/base/SkFloatingPoint.h"
+#include "include/private/base/SkOnce.h"
+#include "src/base/SkVx.h"
 #include "src/core/SkPathPriv.h"
-#include "src/core/SkSafeMath.h"
+
+#include <cstring>
+#include <utility>
+
+#ifdef SK_BUILD_FOR_ANDROID_FRAMEWORK
+    static constexpr int kPathRefGenIDBitCnt = 30; // leave room for the fill type (skbug.com/1762)
+#else
+    static constexpr int kPathRefGenIDBitCnt = 32;
+#endif
 
 //////////////////////////////////////////////////////////////////////////////
 SkPathRef::Editor::Editor(sk_sp<SkPathRef>* pathRef,
                           int incReserveVerbs,
-                          int incReservePoints)
+                          int incReservePoints,
+                          int incReserveConics)
 {
     SkASSERT(incReserveVerbs >= 0);
     SkASSERT(incReservePoints >= 0);
 
     if ((*pathRef)->unique()) {
-        (*pathRef)->incReserve(incReserveVerbs, incReservePoints);
+        (*pathRef)->incReserve(incReserveVerbs, incReservePoints, incReserveConics);
     } else {
-        SkPathRef* copy = new SkPathRef;
+        SkPathRef* copy;
         // No need to copy if the existing ref is the empty ref (because it doesn't contain
         // anything).
         if (!(*pathRef)->isInitialEmptyPathRef()) {
-            copy->copy(**pathRef, incReserveVerbs, incReservePoints);
+            copy = new SkPathRef;
+            copy->copy(**pathRef, incReserveVerbs, incReservePoints, incReserveConics);
         } else {
-            copy->incReserve(incReservePoints, incReservePoints);
+            // Size previously empty paths to exactly fit the supplied hints. The assumpion is
+            // the caller knows the exact size they want (as happens in chrome when deserializing
+            // paths).
+            copy = new SkPathRef(incReserveVerbs, incReservePoints, incReserveConics);
         }
         pathRef->reset(copy);
     }
@@ -42,24 +55,6 @@ SkPathRef::Editor::Editor(sk_sp<SkPathRef>* pathRef,
     fPathRef->fGenerationID = 0;
     fPathRef->fBoundsIsDirty = true;
     SkDEBUGCODE(fPathRef->fEditorsAttached++;)
-}
-
-// Sort of like makeSpace(0) but the the additional requirement that we actively shrink the
-// allocations to just fit the current needs. makeSpace() will only grow, but never shrinks.
-//
-void SkPath::shrinkToFit() {
-    // Since this can relocate the allocated arrays, we have to defensively copy ourselves if
-    // we're not the only owner of the pathref... since relocating the arrays will invalidate
-    // any existing iterators.
-    if (!fPathRef->unique()) {
-        SkPathRef* pr = new SkPathRef;
-        pr->copy(*fPathRef, 0, 0);
-        fPathRef.reset(pr);
-    }
-    fPathRef->fPoints.shrink_to_fit();
-    fPathRef->fVerbs.shrink_to_fit();
-    fPathRef->fConicWeights.shrink_to_fit();
-    SkDEBUGCODE(fPathRef->validate();)
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -208,14 +203,17 @@ void SkPathRef::CreateTransformedCopy(sk_sp<SkPathRef>* dst,
 
     (*dst)->fSegmentMask = src.fSegmentMask;
 
-    // It's an oval only if it stays a rect.
+    // It's an oval only if it stays a rect. Technically if scale is uniform, then it would stay an
+    // arc. For now, don't bother handling that (we'd also need to fixup the angles for negative
+    // scale, etc.)
     bool rectStaysRect = matrix.rectStaysRect();
-    (*dst)->fIsOval = src.fIsOval && rectStaysRect;
-    (*dst)->fIsRRect = src.fIsRRect && rectStaysRect;
-    if ((*dst)->fIsOval || (*dst)->fIsRRect) {
+    const PathType newType =
+            (rectStaysRect && src.fType != PathType::kArc) ? src.fType : PathType::kGeneral;
+    (*dst)->fType = newType;
+    if (newType == PathType::kOval || newType == PathType::kRRect) {
         unsigned start = src.fRRectOrOvalStartIdx;
         bool isCCW = SkToBool(src.fRRectOrOvalIsCCW);
-        transform_dir_and_start(matrix, (*dst)->fIsRRect, &isCCW, &start);
+        transform_dir_and_start(matrix, newType == PathType::kRRect, &isCCW, &start);
         (*dst)->fRRectOrOvalIsCCW = isCCW;
         (*dst)->fRRectOrOvalStartIdx = start;
     }
@@ -238,8 +236,7 @@ void SkPathRef::Rewind(sk_sp<SkPathRef>* pathRef) {
         (*pathRef)->fVerbs.clear();
         (*pathRef)->fConicWeights.clear();
         (*pathRef)->fSegmentMask = 0;
-        (*pathRef)->fIsOval = false;
-        (*pathRef)->fIsRRect = false;
+        (*pathRef)->fType = PathType::kGeneral;
         SkDEBUGCODE((*pathRef)->validate();)
     } else {
         int oldVCnt = (*pathRef)->countVerbs();
@@ -276,46 +273,13 @@ bool SkPathRef::operator== (const SkPathRef& ref) const {
     return true;
 }
 
-void SkPathRef::writeToBuffer(SkWBuffer* buffer) const {
-    SkDEBUGCODE(this->validate();)
-    SkDEBUGCODE(size_t beforePos = buffer->pos();)
-
-    // Call getBounds() to ensure (as a side-effect) that fBounds
-    // and fIsFinite are computed.
-    const SkRect& bounds = this->getBounds();
-
-    // We store fSegmentMask for older readers, but current readers can't trust it, so they
-    // don't read it.
-    int32_t packed = ((fIsFinite & 1) << kIsFinite_SerializationShift) |
-                     (fSegmentMask << kSegmentMask_SerializationShift);
-    buffer->write32(packed);
-
-    // TODO: write gen ID here. Problem: We don't know if we're cross process or not from
-    // SkWBuffer. Until this is fixed we write 0.
-    buffer->write32(0);
-    buffer->write32(fVerbs.size());
-    buffer->write32(fPoints.size());
-    buffer->write32(fConicWeights.size());
-    buffer->write(fVerbs.begin(), fVerbs.size_bytes());
-    buffer->write(fPoints.begin(), fVerbs.size_bytes());
-    buffer->write(fConicWeights.begin(), fConicWeights.size_bytes());
-    buffer->write(&bounds, sizeof(bounds));
-
-    SkASSERT(buffer->pos() - beforePos == (size_t) this->writeSize());
-}
-
-uint32_t SkPathRef::writeSize() const {
-    return uint32_t(5 * sizeof(uint32_t) +
-                    fVerbs.size_bytes() + fPoints.size_bytes() + fConicWeights.size_bytes() +
-                    sizeof(SkRect));
-}
-
 void SkPathRef::copy(const SkPathRef& ref,
                      int additionalReserveVerbs,
-                     int additionalReservePoints) {
+                     int additionalReservePoints,
+                     int additionalReserveConics) {
     SkDEBUGCODE(this->validate();)
     this->resetToSize(ref.fVerbs.size(), ref.fPoints.size(), ref.fConicWeights.size(),
-                      additionalReserveVerbs, additionalReservePoints);
+                      additionalReserveVerbs, additionalReservePoints, additionalReserveConics);
     fVerbs = ref.fVerbs;
     fPoints = ref.fPoints;
     fConicWeights = ref.fConicWeights;
@@ -325,10 +289,13 @@ void SkPathRef::copy(const SkPathRef& ref,
         fIsFinite = ref.fIsFinite;
     }
     fSegmentMask = ref.fSegmentMask;
-    fIsOval = ref.fIsOval;
-    fIsRRect = ref.fIsRRect;
+    fType = ref.fType;
     fRRectOrOvalIsCCW = ref.fRRectOrOvalIsCCW;
     fRRectOrOvalStartIdx = ref.fRRectOrOvalStartIdx;
+    fArcOval = ref.fArcOval;
+    fArcStartAngle = ref.fArcStartAngle;
+    fArcSweepAngle = ref.fArcSweepAngle;
+    fArcType = ref.fArcType;
     SkDEBUGCODE(this->validate();)
 }
 
@@ -340,8 +307,7 @@ void SkPathRef::interpolate(const SkPathRef& ending, SkScalar weight, SkPathRef*
         outValues[index] = outValues[index] * weight + inValues[index] * (1 - weight);
     }
     out->fBoundsIsDirty = true;
-    out->fIsOval = false;
-    out->fIsRRect = false;
+    out->fType = PathType::kGeneral;
 }
 
 std::tuple<SkPoint*, SkScalar*> SkPathRef::growForVerbsInPath(const SkPathRef& path) {
@@ -349,8 +315,7 @@ std::tuple<SkPoint*, SkScalar*> SkPathRef::growForVerbsInPath(const SkPathRef& p
 
     fSegmentMask |= path.fSegmentMask;
     fBoundsIsDirty = true;  // this also invalidates fIsFinite
-    fIsOval = false;
-    fIsRRect = false;
+    fType = PathType::kGeneral;
 
     if (int numVerbs = path.countVerbs()) {
         memcpy(fVerbs.push_back_n(numVerbs), path.fVerbs.begin(), numVerbs * sizeof(fVerbs[0]));
@@ -410,8 +375,7 @@ SkPoint* SkPathRef::growForRepeatedVerb(int /*SkPath::Verb*/ verb,
     }
 
     fBoundsIsDirty = true;  // this also invalidates fIsFinite
-    fIsOval = false;
-    fIsRRect = false;
+    fType = PathType::kGeneral;
 
     memset(fVerbs.push_back_n(numVbs), verb, numVbs);
     if (SkPath::kConic_Verb == verb) {
@@ -463,8 +427,7 @@ SkPoint* SkPathRef::growForVerb(int /* SkPath::Verb*/ verb, SkScalar weight) {
 
     fSegmentMask |= mask;
     fBoundsIsDirty = true;  // this also invalidates fIsFinite
-    fIsOval = false;
-    fIsRRect = false;
+    fType = PathType::kGeneral;
 
     fVerbs.push_back(verb);
     if (SkPath::kConic_Verb == verb) {
@@ -476,9 +439,9 @@ SkPoint* SkPathRef::growForVerb(int /* SkPath::Verb*/ verb, SkScalar weight) {
     return pts;
 }
 
-uint32_t SkPathRef::genID() const {
+uint32_t SkPathRef::genID(uint8_t fillType) const {
     SkASSERT(fEditorsAttached.load() == 0);
-    static const uint32_t kMask = (static_cast<int64_t>(1) << SkPathPriv::kPathRefGenIDBitCnt) - 1;
+    static const uint32_t kMask = (static_cast<int64_t>(1) << kPathRefGenIDBitCnt) - 1;
 
     if (fGenerationID == 0) {
         if (fPoints.empty() && fVerbs.empty()) {
@@ -490,6 +453,10 @@ uint32_t SkPathRef::genID() const {
             } while (fGenerationID == 0 || fGenerationID == kEmptyGenID);
         }
     }
+    #if defined(SK_BUILD_FOR_ANDROID_FRAMEWORK)
+        SkASSERT((unsigned)fillType < (1 << (32 - kPathRefGenIDBitCnt)));
+        fGenerationID |= static_cast<uint32_t>(fillType) << kPathRefGenIDBitCnt;
+    #endif
     return fGenerationID;
 }
 
@@ -549,19 +516,19 @@ SkRRect SkPathRef::getRRect() const {
 }
 
 bool SkPathRef::isRRect(SkRRect* rrect, bool* isCCW, unsigned* start) const {
-        if (fIsRRect) {
-            if (rrect) {
-                *rrect = this->getRRect();
-            }
-            if (isCCW) {
-                *isCCW = SkToBool(fRRectOrOvalIsCCW);
-            }
-            if (start) {
-                *start = fRRectOrOvalStartIdx;
-            }
+    if (fType == PathType::kRRect) {
+        if (rrect) {
+            *rrect = this->getRRect();
         }
-        return SkToBool(fIsRRect);
+        if (isCCW) {
+            *isCCW = SkToBool(fRRectOrOvalIsCCW);
+        }
+        if (start) {
+            *start = fRRectOrOvalStartIdx;
+        }
     }
+    return fType == PathType::kRRect;
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -651,33 +618,37 @@ uint8_t SkPathRef::Iter::peek() const {
 
 
 bool SkPathRef::isValid() const {
-    if (fIsOval || fIsRRect) {
-        // Currently we don't allow both of these to be set, even though ovals are ro
-        if (fIsOval == fIsRRect) {
-            return false;
-        }
-        if (fIsOval) {
+    switch (fType) {
+        case PathType::kGeneral:
+            break;
+        case PathType::kOval:
             if (fRRectOrOvalStartIdx >= 4) {
                 return false;
             }
-        } else {
+            break;
+        case PathType::kRRect:
             if (fRRectOrOvalStartIdx >= 8) {
                 return false;
             }
-        }
+            break;
+        case PathType::kArc:
+            if (!(fArcOval.isFinite() && SkIsFinite(fArcStartAngle, fArcSweepAngle))) {
+                return false;
+            }
+            break;
     }
 
     if (!fBoundsIsDirty && !fBounds.isEmpty()) {
         bool isFinite = true;
         auto leftTop = skvx::float2(fBounds.fLeft, fBounds.fTop);
         auto rightBot = skvx::float2(fBounds.fRight, fBounds.fBottom);
-        for (int i = 0; i < fPoints.count(); ++i) {
+        for (int i = 0; i < fPoints.size(); ++i) {
             auto point = skvx::float2(fPoints[i].fX, fPoints[i].fY);
 #ifdef SK_DEBUG
             if (fPoints[i].isFinite() && (any(point < leftTop)|| any(point > rightBot))) {
                 SkDebugf("bad SkPathRef bounds: %g %g %g %g\n",
                          fBounds.fLeft, fBounds.fTop, fBounds.fRight, fBounds.fBottom);
-                for (int j = 0; j < fPoints.count(); ++j) {
+                for (int j = 0; j < fPoints.size(); ++j) {
                     if (i == j) {
                         SkDebugf("*** bounds do not contain: ");
                     }
@@ -702,31 +673,16 @@ bool SkPathRef::isValid() const {
 
 void SkPathRef::reset() {
     commonReset();
-    fPoints.resize(0);
-    fVerbs.resize(0);
-    fConicWeights.resize(0);
+    fPoints.clear();
+    fVerbs.clear();
+    fConicWeights.clear();
     SkDEBUGCODE(validate();)
 }
 
 bool SkPathRef::dataMatchesVerbs() const {
-    const auto info = sk_path_analyze_verbs(fVerbs.begin(), fVerbs.size());
+    const auto info = SkPathPriv::AnalyzeVerbs(fVerbs.begin(), fVerbs.size());
     return info.valid                          &&
            info.segmentMask == fSegmentMask    &&
-           info.points      == fPoints.count()  &&
-           info.weights     == fConicWeights.count();
-}
-//////////////////////////////////////////////////////////////////////////////////////////////////
-
-SkPathEdgeIter::SkPathEdgeIter(const SkPath& path) {
-    fMoveToPtr = fPts = path.fPathRef->points();
-    fVerbs = path.fPathRef->verbsBegin();
-    fVerbsStop = path.fPathRef->verbsEnd();
-    fConicWeights = path.fPathRef->conicWeights();
-    if (fConicWeights) {
-        fConicWeights -= 1;  // begin one behind
-    }
-
-    fNeedsCloseLine = false;
-    fNextIsNewContour = false;
-    SkDEBUGCODE(fIsConic = false;)
+           info.points      == fPoints.size()  &&
+           info.weights     == fConicWeights.size();
 }

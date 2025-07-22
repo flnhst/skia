@@ -7,32 +7,83 @@
 
 #include "src/gpu/graphite/dawn/DawnSharedContext.h"
 
+#include "include/gpu/graphite/Context.h"
 #include "include/gpu/graphite/ContextOptions.h"
 #include "include/gpu/graphite/dawn/DawnBackendContext.h"
 #include "src/gpu/graphite/Log.h"
-#include "src/gpu/graphite/dawn/DawnCaps.h"
 #include "src/gpu/graphite/dawn/DawnResourceProvider.h"
 
+#include "webgpu/webgpu_cpp.h"  // NO_G3_REWRITE
+
 namespace skgpu::graphite {
+namespace {
 
-sk_sp<SharedContext> DawnSharedContext::Make(const DawnBackendContext& context,
+wgpu::ShaderModule CreateNoopFragment(const wgpu::Device& device) {
+#ifdef WGPU_BREAKING_CHANGE_DROP_DESCRIPTOR
+    wgpu::ShaderSourceWGSL wgslDesc;
+#else
+    wgpu::ShaderModuleWGSLDescriptor wgslDesc;
+#endif
+    wgslDesc.code =
+            "@fragment\n"
+            "fn main() {}\n";
+    wgpu::ShaderModuleDescriptor smDesc;
+    smDesc.nextInChain = &wgslDesc;
+    smDesc.label = "no-op";
+    auto fsModule = device.CreateShaderModule(&smDesc);
+    return fsModule;
+}
+
+}
+
+sk_sp<SharedContext> DawnSharedContext::Make(const DawnBackendContext& backendContext,
                                              const ContextOptions& options) {
-    std::unique_ptr<const DawnCaps> caps(new DawnCaps());
+    if (!backendContext.fDevice || !backendContext.fQueue) {
+        return {};
+    }
 
-    return sk_sp<SharedContext>(new DawnSharedContext(context,
-                                                      std::move(caps)));
+    auto noopFragment = CreateNoopFragment(backendContext.fDevice);
+    if (!noopFragment) {
+        return {};
+    }
+
+    auto caps = std::make_unique<const DawnCaps>(backendContext, options);
+
+    return sk_sp<SharedContext>(new DawnSharedContext(backendContext,
+                                                      std::move(caps),
+                                                      std::move(noopFragment)));
 }
 
 DawnSharedContext::DawnSharedContext(const DawnBackendContext& backendContext,
-                                     std::unique_ptr<const DawnCaps> caps)
-        : skgpu::graphite::SharedContext(std::move(caps), BackendApi::kDawn) {}
+                                     std::unique_ptr<const DawnCaps> caps,
+                                     wgpu::ShaderModule noopFragment)
+        : skgpu::graphite::SharedContext(std::move(caps), BackendApi::kDawn)
+        , fInstance(backendContext.fInstance)
+        , fDevice(backendContext.fDevice)
+        , fQueue(backendContext.fQueue)
+        , fTick(backendContext.fTick)
+        , fNoopFragment(std::move(noopFragment)) {}
 
-DawnSharedContext::~DawnSharedContext() = default;
-
-std::unique_ptr<ResourceProvider> DawnSharedContext::makeResourceProvider(
-        SingleOwner* singleOwner) {
-    return std::unique_ptr<ResourceProvider>(new DawnResourceProvider(this, singleOwner));
+DawnSharedContext::~DawnSharedContext() {
+    // need to clear out resources before any allocator is removed
+    this->globalCache()->deleteResources();
 }
 
-} // namespace skgpu::graphite
+std::unique_ptr<ResourceProvider> DawnSharedContext::makeResourceProvider(
+        SingleOwner* singleOwner,
+        uint32_t recorderID,
+        size_t resourceBudget) {
+    return std::unique_ptr<ResourceProvider>(new DawnResourceProvider(this,
+                                                                      singleOwner,
+                                                                      recorderID,
+                                                                      resourceBudget));
+}
 
+void DawnSharedContext::deviceTick(Context* context) {
+#if !defined(__EMSCRIPTEN__)
+    this->device().Tick();
+#endif
+    context->checkAsyncWorkCompletion();
+};
+
+} // namespace skgpu::graphite

@@ -10,18 +10,18 @@
 #include "include/core/SkRefCnt.h"
 #include "include/core/SkSpan.h"
 #include "include/core/SkTypes.h"
+#include "src/base/SkZip.h"
 #include "src/core/SkDescriptor.h"
 #include "src/core/SkGlyph.h"
-#include "src/core/SkGlyphBuffer.h"
 #include "src/core/SkReadBuffer.h"
-#include "src/core/SkStrikeCache.h"
+#include "src/core/SkStrike.h"
 #include "src/core/SkStrikeSpec.h"
 #include "src/core/SkWriteBuffer.h"
-#include "src/core/SkZip.h"
 #include "src/text/StrikeForGPU.h"
 #include "src/text/gpu/GlyphVector.h"
 #include "src/text/gpu/SubRunAllocator.h"
 #include "tests/Test.h"
+#include "tools/fonts/FontToolUtils.h"
 
 #include <initializer_list>
 #include <limits.h>
@@ -43,13 +43,13 @@ public:
 };
 
 DEF_TEST(GlyphVector_Serialization, r) {
-    SkFont font;
+    SkFont font = ToolUtils::DefaultFont();
     auto [strikeSpec, _] = SkStrikeSpec::MakeCanonicalized(font);
 
     SubRunAllocator alloc;
 
     const int N = 10;
-    SkGlyphVariant* glyphs = alloc.makePODArray<SkGlyphVariant>(N);
+    SkPackedGlyphID* glyphs = alloc.makePODArray<SkPackedGlyphID>(N);
     for (int i = 0; i < N; i++) {
         glyphs[i] = SkPackedGlyphID(SkGlyphID(i));
     }
@@ -58,7 +58,7 @@ DEF_TEST(GlyphVector_Serialization, r) {
 
     GlyphVector src = GlyphVector::Make(std::move(promise), SkSpan(glyphs, N), &alloc);
 
-    SkBinaryWriteBuffer wBuffer;
+    SkBinaryWriteBuffer wBuffer({});
     src.flatten(wBuffer);
 
     auto data = wBuffer.snapshotAsData();
@@ -77,7 +77,7 @@ DEF_TEST(GlyphVector_Serialization, r) {
 }
 
 DEF_TEST(GlyphVector_BadLengths, r) {
-    auto [strikeSpec, _] = SkStrikeSpec::MakeCanonicalized(SkFont());
+    auto [strikeSpec, _] = SkStrikeSpec::MakeCanonicalized(ToolUtils::DefaultFont());
 
     // Strike to keep in the strike cache.
     auto strike = strikeSpec.findOrCreateStrike();
@@ -87,7 +87,7 @@ DEF_TEST(GlyphVector_BadLengths, r) {
     SkStrikePromise promise{sk_sp<SkStrike>(strike)};
     {
         // Make broken stream by hand - zero length
-        SkBinaryWriteBuffer wBuffer;
+        SkBinaryWriteBuffer wBuffer({});
         promise.flatten(wBuffer);
         wBuffer.write32(0);  // length
         auto data = wBuffer.snapshotAsData();
@@ -99,7 +99,7 @@ DEF_TEST(GlyphVector_BadLengths, r) {
 
     {
         // Make broken stream by hand - zero length
-        SkBinaryWriteBuffer wBuffer;
+        SkBinaryWriteBuffer wBuffer({});
         promise.flatten(wBuffer);
         // Make broken stream by hand - stream is too short
         wBuffer.write32(5);  // length
@@ -115,7 +115,7 @@ DEF_TEST(GlyphVector_BadLengths, r) {
 
     {
         // Make broken stream by hand - length out of range of safe calculations
-        SkBinaryWriteBuffer wBuffer;
+        SkBinaryWriteBuffer wBuffer({});
         promise.flatten(wBuffer);
         wBuffer.write32(INT_MAX - 10);  // length
         wBuffer.writeUInt(12);  // random data

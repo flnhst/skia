@@ -31,9 +31,10 @@
 #include "include/core/SkTypeface.h"
 #include "include/core/SkTypes.h"
 #include "include/effects/SkGradientShader.h"
-#include "include/pathops/SkPathOps.h"
 #include "include/utils/SkTextUtils.h"
+#include "src/image/SkImageGeneratorPriv.h"
 #include "tools/ToolUtils.h"
+#include "tools/fonts/FontToolUtils.h"
 
 #include <string.h>
 #include <memory>
@@ -47,21 +48,21 @@ static void draw_vector_logo(SkCanvas* canvas, const SkRect& viewBox) {
     SkPaint paint;
     paint.setAntiAlias(true);
 
-    SkFont font(ToolUtils::create_portable_typeface());
+    SkFont font = ToolUtils::DefaultPortableFont();
     font.setSubpixel(true);
     font.setEmbolden(true);
 
     SkPath path;
-    SkRect iBox, skiBox, skiaBox;
     SkTextUtils::GetPath("SKI", 3, SkTextEncoding::kUTF8, 0, 0, font, &path);
-    TightBounds(path, &skiBox);
+    auto skiBox = path.computeTightBounds();
+
     SkTextUtils::GetPath("I", 1, SkTextEncoding::kUTF8, 0, 0, font, &path);
-    TightBounds(path, &iBox);
+    auto iBox = path.computeTightBounds();
     iBox.offsetTo(skiBox.fRight - iBox.width(), iBox.fTop);
 
     const size_t textLen = strlen(kSkiaStr);
     SkTextUtils::GetPath(kSkiaStr, textLen, SkTextEncoding::kUTF8, 0, 0, font, &path);
-    TightBounds(path, &skiaBox);
+    auto skiaBox = path.computeTightBounds();
     skiaBox.outset(0, 2 * iBox.width() * (kVerticalSpacing + 1));
 
     const SkScalar accentSize = iBox.width() * kAccentScale;
@@ -117,13 +118,9 @@ static void draw_vector_logo(SkCanvas* canvas, const SkRect& viewBox) {
 // (in particular its matrix vs. bounds semantics).
 class PictureGeneratorGM : public skiagm::GM {
 protected:
-    SkString onShortName() override {
-        return SkString("pictureimagegenerator");
-    }
+    SkString getName() const override { return SkString("pictureimagegenerator"); }
 
-    SkISize onISize() override {
-        return SkISize::Make(1160, 860);
-    }
+    SkISize getISize() override { return SkISize::Make(1160, 860); }
 
     void onOnceBeforeDraw() override {
         const SkRect rect = SkRect::MakeWH(kPictureWidth, kPictureHeight);
@@ -176,9 +173,12 @@ protected:
                 m.postTranslate(0, SkIntToScalar(configs[i].size.height()));
             }
             std::unique_ptr<SkImageGenerator> gen =
-                SkImageGenerator::MakeFromPicture(configs[i].size, fPicture, &m,
-                                                 p.getAlpha() != 255 ? &p : nullptr,
-                                                 SkImage::BitDepth::kU8, srgbColorSpace);
+                    SkImageGenerators::MakeFromPicture(configs[i].size,
+                                                       fPicture,
+                                                       &m,
+                                                       p.getAlpha() != 255 ? &p : nullptr,
+                                                       SkImages::BitDepth::kU8,
+                                                       srgbColorSpace);
 
             SkImageInfo bmInfo = gen->getInfo().makeColorSpace(canvas->imageInfo().refColorSpace());
 

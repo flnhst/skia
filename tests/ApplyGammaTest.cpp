@@ -19,9 +19,12 @@
 #include "include/core/SkSize.h"
 #include "include/core/SkSurface.h"
 #include "include/core/SkTypes.h"
-#include "include/gpu/GrDirectContext.h"
-#include "include/private/SkTemplates.h"
-#include "src/core/SkOpts.h"
+#include "include/gpu/GpuTypes.h"
+#include "include/gpu/ganesh/GrDirectContext.h"
+#include "include/gpu/ganesh/GrTypes.h"
+#include "include/gpu/ganesh/SkSurfaceGanesh.h"
+#include "include/private/base/SkTemplates.h"
+#include "src/core/SkMemset.h"
 #include "src/gpu/ganesh/GrCaps.h"
 #include "src/gpu/ganesh/GrDirectContextPriv.h"
 #include "src/gpu/ganesh/GrShaderCaps.h"
@@ -33,6 +36,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <initializer_list>
+
+using namespace skia_private;
 
 struct GrContextOptions;
 
@@ -106,7 +111,7 @@ DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(ApplyGamma, reporter, ctxInfo, CtsEnforce
 
     const SkImageInfo ii = SkImageInfo::MakeN32Premul(kBaseSize);
 
-    SkAutoTMalloc<uint32_t> srcPixels(kBaseSize.area());
+    AutoTMalloc<uint32_t> srcPixels(kBaseSize.area());
     for (int y = 0; y < kBaseSize.fHeight; ++y) {
         for (int x = 0; x < kBaseSize.fWidth; ++x) {
             srcPixels.get()[y*kBaseSize.fWidth+x] = SkPreMultiplyARGB(x, y, x, 0xFF);
@@ -117,13 +122,13 @@ DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(ApplyGamma, reporter, ctxInfo, CtsEnforce
     bm.installPixels(ii, srcPixels.get(), kRowBytes);
     auto img = bm.asImage();
 
-    SkAutoTMalloc<uint32_t> read(kBaseSize.area());
+    AutoTMalloc<uint32_t> read(kBaseSize.area());
 
     // We allow more error on GPUs with lower precision shader variables.
     float error = context->priv().caps()->shaderCaps()->fHalfIs32Bits ? 0.5f : 1.2f;
 
     for (auto toSRGB : { false, true }) {
-        sk_sp<SkSurface> dst(SkSurface::MakeRenderTarget(context, SkBudgeted::kNo, ii));
+        sk_sp<SkSurface> dst(SkSurfaces::RenderTarget(context, skgpu::Budgeted::kNo, ii));
 
         if (!dst) {
             ERRORF(reporter, "Could not create surfaces for copy surface test.");
@@ -133,7 +138,7 @@ DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(ApplyGamma, reporter, ctxInfo, CtsEnforce
         SkCanvas* dstCanvas = dst->getCanvas();
 
         dstCanvas->clear(SK_ColorRED);
-        dst->flushAndSubmit();
+        context->flushAndSubmit(dst.get(), GrSyncCpu::kNo);
 
         SkPaint gammaPaint;
         gammaPaint.setBlendMode(SkBlendMode::kSrc);
@@ -141,9 +146,9 @@ DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(ApplyGamma, reporter, ctxInfo, CtsEnforce
                                          : SkColorFilters::SRGBToLinearGamma());
 
         dstCanvas->drawImage(img, 0, 0, SkSamplingOptions(), &gammaPaint);
-        dst->flushAndSubmit();
+        context->flushAndSubmit(dst.get(), GrSyncCpu::kNo);
 
-        sk_memset32(read.get(), 0, kBaseSize.fWidth * kBaseSize.fHeight);
+        SkOpts::memset32(read.get(), 0, kBaseSize.fWidth * kBaseSize.fHeight);
         if (!dst->readPixels(ii, read.get(), kRowBytes, 0, 0)) {
             ERRORF(reporter, "Error calling readPixels");
             continue;

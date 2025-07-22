@@ -13,15 +13,16 @@
 #include "include/core/SkScalar.h"
 #include "include/core/SkSize.h"
 #include "include/core/SkTypes.h"
-#include "include/private/SkFloatingPoint.h"
-#include "include/private/SkMalloc.h"
-#include "include/utils/SkRandom.h"
+#include "include/private/base/SkDebug.h"
+#include "include/private/base/SkFloatingPoint.h"
+#include "include/private/base/SkMalloc.h"
+#include "src/base/SkRandom.h"
 #include "src/core/SkMatrixPriv.h"
 #include "src/core/SkMatrixUtils.h"
 #include "src/core/SkPointPriv.h"
 #include "tests/Test.h"
 
-#include <cstddef>
+#include <cstring>
 #include <initializer_list>
 #include <string>
 
@@ -73,7 +74,7 @@ static bool are_equal(skiatest::Reporter* reporter,
                 float bVal = b.get(i);
                 int aValI = float_bits(aVal);
                 int bValI = float_bits(bVal);
-                if (sk_float_isnan(aVal) && aValI == bValI) {
+                if (std::isnan(aVal) && aValI == bValI) {
                     foundNaN = true;
                 } else {
                     REPORTER_ASSERT(reporter, aVal == bVal && aValI == bValI);
@@ -897,6 +898,41 @@ DEF_TEST(Matrix, reporter) {
     REPORTER_ASSERT(reporter, !mat.invert(nullptr));
     REPORTER_ASSERT(reporter, !mat.invert(&inverse));
 
+    // Inverting this matrix results in a non-finite matrix (1/scale overflows to infinity)
+    // b/378231198: Previously this would pass invert() if a null inverse pointer was passed in.
+    mat.setAll(std::numeric_limits<float>::denorm_min(), 0.f, 0.f,
+               0.f, 1.f, 0.f,
+               0.f, 0.f, 1.f);
+    REPORTER_ASSERT(reporter, mat.isScaleTranslate());
+    REPORTER_ASSERT(reporter, !mat.invert(nullptr));
+    REPORTER_ASSERT(reporter, !mat.invert(&inverse));
+
+    // b/378231198: This matrix shouldn't be invertible, but previously the translation wasn't being
+    // validated when taking the optimized scale+translate paths.
+    mat.setAll(2.f, 0.f, std::numeric_limits<float>::quiet_NaN(),
+               0.f, 2.f, 0.f,
+               0.f, 0.f, 1.f);
+    REPORTER_ASSERT(reporter, mat.isScaleTranslate());
+    REPORTER_ASSERT(reporter, !mat.invert(nullptr));
+    REPORTER_ASSERT(reporter, !mat.invert(&inverse));
+    // Variant that tests the translate-only optimized invert()
+    mat.setAll(1.f, 0.f, std::numeric_limits<float>::quiet_NaN(),
+               0.f, 1.f, 0.f,
+               0.f, 0.f, 1.f);
+    REPORTER_ASSERT(reporter, mat.isTranslate());
+    REPORTER_ASSERT(reporter, !mat.invert(nullptr));
+    REPORTER_ASSERT(reporter, !mat.invert(&inverse));
+
+    // A finite scale+translate matrix whose inverse can't be calculated because trans/scale
+    // becomes non-finite.
+    mat.setAll(std::numeric_limits<float>::min(), 0.f, std::numeric_limits<float>::max(),
+               0.f, 1.f, 0.f,
+               0.f, 0.f, 1.f);
+    REPORTER_ASSERT(reporter, mat.isScaleTranslate());
+    REPORTER_ASSERT(reporter, mat.isFinite());
+    REPORTER_ASSERT(reporter, !mat.invert(nullptr));
+    REPORTER_ASSERT(reporter, !mat.invert(&inverse));
+
     // rectStaysRect test
     {
         static const struct {
@@ -1080,3 +1116,72 @@ DEF_TEST(Matrix_SetRotateSnap, r) {
     m.setRotate(0.01f);
     REPORTER_ASSERT(r, !m.rectStaysRect());
 }
+
+DEF_TEST(Matrix_rectStaysRect_zeroScale, r) {
+    // rectStaysRect() returns true if the scale factors are non-zero, so preScale(0,0),
+    // setScale(0,0), setScaleTranslate(0,0,...), ::Scale(), should not have the flag set.
+    REPORTER_ASSERT(r, !SkMatrix::Scale(0.f, 0.f).rectStaysRect());
+    REPORTER_ASSERT(r, !SkMatrix::Scale(0.f, 2.f).rectStaysRect());
+    REPORTER_ASSERT(r, !SkMatrix::Scale(2.f, 0.f).rectStaysRect());
+
+    // RectToRect() is like scaling. It fails if the source rect is empty, but if the dst rect is
+    // empty it's as if it had a zero scale factor, so it's type mask should reflect that.
+    const SkRect src = {0.f,0.f,10.f,10.f};
+    REPORTER_ASSERT(r, !SkMatrix::RectToRect(src, {0.f,0.f,0.f,0.f}).rectStaysRect());
+    REPORTER_ASSERT(r, !SkMatrix::RectToRect(src, {0.f,0.f,0.f,20.f}).rectStaysRect());
+    REPORTER_ASSERT(r, !SkMatrix::RectToRect(src, {0.f,0.f,20.f,0.f}).rectStaysRect());
+
+    {
+        SkMatrix rectMatrix = SkMatrix::I(); // trivially
+        REPORTER_ASSERT(r, rectMatrix.rectStaysRect());
+
+        SkMatrix nonRectMatrix = rectMatrix;
+        nonRectMatrix.preScale(0.f, 0.f);
+        REPORTER_ASSERT(r, !nonRectMatrix.rectStaysRect());
+
+        nonRectMatrix = rectMatrix;
+        nonRectMatrix.preScale(0.f, 2.f);
+        REPORTER_ASSERT(r, !nonRectMatrix.rectStaysRect());
+
+        nonRectMatrix = rectMatrix;
+        nonRectMatrix.preScale(2.f, 0.f);
+        REPORTER_ASSERT(r, !nonRectMatrix.rectStaysRect());
+    }
+
+    {
+        SkMatrix m;
+        m.setScale(0.f, 0.f);
+        REPORTER_ASSERT(r, !m.rectStaysRect());
+    }
+
+    {
+        SkMatrix m;
+        m.setScale(0.f, 2.f);
+        REPORTER_ASSERT(r, !m.rectStaysRect());
+    }
+
+    {
+        SkMatrix m;
+        m.setScale(2.f, 0.f);
+        REPORTER_ASSERT(r, !m.rectStaysRect());
+    }
+
+    {
+        SkMatrix m;
+        m.setScaleTranslate(0.f, 0.f, 10.f, 10.f);
+        REPORTER_ASSERT(r, !m.rectStaysRect());
+    }
+
+    {
+        SkMatrix m;
+        m.setScaleTranslate(0.f, 2.f, 10.f, 10.f);
+        REPORTER_ASSERT(r, !m.rectStaysRect());
+    }
+
+    {
+        SkMatrix m;
+        m.setScaleTranslate(2.f, 0.f, 10.f, 10.f);
+        REPORTER_ASSERT(r, !m.rectStaysRect());
+    }
+
+    }

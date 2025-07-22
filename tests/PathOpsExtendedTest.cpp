@@ -19,10 +19,11 @@
 #include "include/core/SkStream.h"
 #include "include/core/SkString.h"
 #include "include/core/SkTypes.h"
-#include "include/private/SkFloatBits.h"
-#include "include/private/SkMutex.h"
-#include "include/private/SkTDArray.h"
+#include "include/private/base/SkDebug.h"
+#include "include/private/base/SkMutex.h"
+#include "include/private/base/SkTDArray.h"
 #include "include/utils/SkParsePath.h"
+#include "src/base/SkFloatBits.h"
 #include "src/core/SkPathPriv.h"
 #include "src/pathops/SkPathOpsDebug.h"
 #include "tests/PathOpsDebug.h"
@@ -34,6 +35,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -427,8 +429,7 @@ static void json_path_out(const SkPath& path, const char* pathName, const char* 
         "InverseEvenOdd",
     };
     if (PathOpsDebug::gOutputSVG) {
-        SkString svg;
-        SkParsePath::ToSVGString(path, &svg);
+        SkString svg = SkParsePath::ToSVGString(path);
         fprintf(PathOpsDebug::gOut, "  \"%s\": \"%s\",\n", pathName, svg.c_str());
     } else {
                                  // MOVE, LINE, QUAD, CONIC, CUBIC, CLOSE

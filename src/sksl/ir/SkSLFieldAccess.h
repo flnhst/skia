@@ -8,22 +8,22 @@
 #ifndef SKSL_FIELDACCESS
 #define SKSL_FIELDACCESS
 
-#include "include/private/SkSLIRNode.h"
-#include "include/sksl/SkSLPosition.h"
+#include "include/core/SkSpan.h"
+#include "src/sksl/SkSLPosition.h"
 #include "src/sksl/ir/SkSLExpression.h"
+#include "src/sksl/ir/SkSLIRNode.h"
 #include "src/sksl/ir/SkSLType.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
 #include <string_view>
 #include <utility>
-#include <vector>
 
 namespace SkSL {
 
 class Context;
-class SymbolTable;
 enum class OperatorPrecedence : uint8_t;
 
 enum class FieldAccessOwnerKind : int8_t {
@@ -52,7 +52,6 @@ public:
     // Returns a field-access expression; reports errors via the ErrorReporter.
     static std::unique_ptr<Expression> Convert(const Context& context,
                                                Position pos,
-                                               SymbolTable& symbolTable,
                                                std::unique_ptr<Expression> base,
                                                std::string_view field);
 
@@ -85,6 +84,8 @@ public:
                                              this->fieldIndex(),
                                              this->ownerKind());
     }
+
+    size_t initialSlot() const;
 
     std::string description(OperatorPrecedence) const override;
 

@@ -12,16 +12,18 @@
 #include "include/core/SkSize.h"
 #include "include/core/SkSurfaceProps.h"
 #include "include/core/SkTypes.h"
-#include "include/gpu/GrBackendSurface.h"
-#include "include/gpu/GrContextOptions.h"
-#include "include/gpu/GrDirectContext.h"
-#include "include/gpu/GrRecordingContext.h"
-#include "include/gpu/GrTypes.h"
-#include "include/gpu/mock/GrMockTypes.h"
+#include "include/gpu/GpuTypes.h"
+#include "include/gpu/ganesh/GrBackendSurface.h"
+#include "include/gpu/ganesh/GrContextOptions.h"
+#include "include/gpu/ganesh/GrDirectContext.h"
+#include "include/gpu/ganesh/GrRecordingContext.h"
+#include "include/gpu/ganesh/GrTypes.h"
+#include "include/gpu/ganesh/mock/GrMockTypes.h"
 #include "include/private/SkColorData.h"
 #include "include/private/gpu/ganesh/GrTypesPriv.h"
 #include "src/core/SkRectPriv.h"
 #include "src/gpu/AtlasTypes.h"
+#include "src/gpu/SkBackingFit.h"
 #include "src/gpu/Swizzle.h"
 #include "src/gpu/ganesh/GrAppliedClip.h"
 #include "src/gpu/ganesh/GrCaps.h"
@@ -74,7 +76,7 @@ public:
     }
 
     bool preFlush(GrOnFlushResourceProvider* onFlushRP) override {
-#if GR_TEST_UTILS
+#if defined(GPU_TEST_UTILS)
         if (onFlushRP->failFlushTimeCallbacks()) {
             return false;
         }
@@ -85,7 +87,7 @@ public:
         return true;
     }
 
-    void postFlush(skgpu::DrawToken) override {
+    void postFlush(skgpu::AtlasToken) override {
         REPORTER_ASSERT(fReporter, fHasOpTexture);
         REPORTER_ASSERT(fReporter, fHasClipTexture);
     }
@@ -102,7 +104,7 @@ public:
         }
 
         void visitProxies(const GrVisitProxyFunc& func) const override {
-            func(fProxy.get(), GrMipmapped::kNo);
+            func(fProxy.get(), skgpu::Mipmapped::kNo);
         }
 
         void onExecute(GrOpFlushState*, const SkRect& chainBounds) override {
@@ -227,7 +229,7 @@ public:
             return SkIRect::MakeSize(fAtlas->dimensions());
         }
         Effect apply(GrRecordingContext* rContext,
-                     skgpu::v1::SurfaceDrawContext*,
+                     skgpu::ganesh::SurfaceDrawContext*,
                      GrDrawOp*,
                      GrAAType,
                      GrAppliedClip* out,
@@ -257,14 +259,21 @@ DEF_GANESH_TEST(LazyProxyTest, reporter, /* options */, CtsEnforcement::kApiLeve
     for (bool nullTexture : {false, true}) {
         LazyProxyTest test(reporter);
         ctx->priv().addOnFlushCallbackObject(&test);
-        auto sdc = skgpu::v1::SurfaceDrawContext::Make(ctx.get(), GrColorType::kRGBA_8888, nullptr,
-                                                       SkBackingFit::kExact, {100, 100},
-                                                       SkSurfaceProps(), /*label=*/{});
+        auto sdc = skgpu::ganesh::SurfaceDrawContext::Make(ctx.get(),
+                                                           GrColorType::kRGBA_8888,
+                                                           nullptr,
+                                                           SkBackingFit::kExact,
+                                                           {100, 100},
+                                                           SkSurfaceProps(),
+                                                           /*label=*/{});
         REPORTER_ASSERT(reporter, sdc);
-        auto mockAtlas = skgpu::v1::SurfaceDrawContext::Make(ctx.get(), GrColorType::kAlpha_F16,
-                                                             nullptr, SkBackingFit::kExact,
-                                                             {10, 10}, SkSurfaceProps(),
-                                                             /*label=*/{});
+        auto mockAtlas = skgpu::ganesh::SurfaceDrawContext::Make(ctx.get(),
+                                                                 GrColorType::kAlpha_F16,
+                                                                 nullptr,
+                                                                 SkBackingFit::kExact,
+                                                                 {10, 10},
+                                                                 SkSurfaceProps(),
+                                                                 /*label=*/{});
         REPORTER_ASSERT(reporter, mockAtlas);
         LazyProxyTest::Clip clip(&test, mockAtlas->asTextureProxy());
         sdc->addDrawOp(&clip,
@@ -289,8 +298,8 @@ DEF_GANESH_TEST(LazyProxyReleaseTest, reporter, /* options */, CtsEnforcement::k
                                                              GrTextureType::k2D,
                                                              GrRenderable::kNo,
                                                              1,
-                                                             GrMipmapped::kNo,
-                                                             SkBudgeted::kNo,
+                                                             skgpu::Mipmapped::kNo,
+                                                             skgpu::Budgeted::kNo,
                                                              GrProtected::kNo,
                                                              /*label=*/{});
     using LazyInstantiationResult = GrSurfaceProxy::LazyCallbackResult;
@@ -331,11 +340,18 @@ DEF_GANESH_TEST(LazyProxyReleaseTest, reporter, /* options */, CtsEnforcement::k
                 bool fReleaseCallback;
                 sk_sp<GrTexture> fTexture;
             };
-            sk_sp<GrTextureProxy> proxy = proxyProvider->createLazyProxy(
-                    TestCallback(&testCount, releaseCallback, tex), format, {kSize, kSize},
-                    GrMipmapped::kNo, GrMipmapStatus::kNotAllocated, GrInternalSurfaceFlags::kNone,
-                    SkBackingFit::kExact, SkBudgeted::kNo, GrProtected::kNo,
-                    GrSurfaceProxy::UseAllocator::kYes, /*label=*/{});
+            sk_sp<GrTextureProxy> proxy =
+                    proxyProvider->createLazyProxy(TestCallback(&testCount, releaseCallback, tex),
+                                                   format,
+                                                   {kSize, kSize},
+                                                   skgpu::Mipmapped::kNo,
+                                                   GrMipmapStatus::kNotAllocated,
+                                                   GrInternalSurfaceFlags::kNone,
+                                                   SkBackingFit::kExact,
+                                                   skgpu::Budgeted::kNo,
+                                                   GrProtected::kNo,
+                                                   GrSurfaceProxy::UseAllocator::kYes,
+                                                   /*label=*/{});
 
             REPORTER_ASSERT(reporter, proxy.get());
             REPORTER_ASSERT(reporter, 0 == testCount);
@@ -375,7 +391,7 @@ public:
     }
 
     void visitProxies(const GrVisitProxyFunc& func) const override {
-        func(fLazyProxy.get(), GrMipmapped::kNo);
+        func(fLazyProxy.get(), skgpu::Mipmapped::kNo);
     }
 
 private:
@@ -408,9 +424,16 @@ private:
                                               /*label=*/{}),
                             true, GrSurfaceProxy::LazyInstantiationKeyMode::kUnsynced};
                 },
-                format, dims, GrMipmapped::kNo, GrMipmapStatus::kNotAllocated,
-                GrInternalSurfaceFlags::kNone, SkBackingFit::kExact, SkBudgeted::kNo,
-                GrProtected::kNo, GrSurfaceProxy::UseAllocator::kYes, /*label=*/{});
+                format,
+                dims,
+                skgpu::Mipmapped::kNo,
+                GrMipmapStatus::kNotAllocated,
+                GrInternalSurfaceFlags::kNone,
+                SkBackingFit::kExact,
+                skgpu::Budgeted::kNo,
+                GrProtected::kNo,
+                GrSurfaceProxy::UseAllocator::kYes,
+                /*label=*/{});
 
         SkASSERT(fLazyProxy.get());
 
@@ -449,9 +472,13 @@ DEF_GANESH_TEST(LazyProxyFailedInstantiationTest,
     sk_sp<GrDirectContext> ctx = GrDirectContext::MakeMock(&mockOptions, GrContextOptions());
     GrProxyProvider* proxyProvider = ctx->priv().proxyProvider();
     for (bool failInstantiation : {false, true}) {
-        auto sdc = skgpu::v1::SurfaceDrawContext::Make(ctx.get(), GrColorType::kRGBA_8888, nullptr,
-                                                       SkBackingFit::kExact, {100, 100},
-                                                       SkSurfaceProps(), /*label=*/{});
+        auto sdc = skgpu::ganesh::SurfaceDrawContext::Make(ctx.get(),
+                                                           GrColorType::kRGBA_8888,
+                                                           nullptr,
+                                                           SkBackingFit::kExact,
+                                                           {100, 100},
+                                                           SkSurfaceProps(),
+                                                           /*label=*/{});
         REPORTER_ASSERT(reporter, sdc);
 
         sdc->clear(SkPMColor4f::FromBytes_RGBA(0xbaaaaaad));

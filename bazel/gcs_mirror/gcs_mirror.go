@@ -7,6 +7,7 @@
 // There are two modes of use:
 //   - Specify a single file via --url and --sha256.
 //   - Copy a JSON array of objects (or Starlark list of dictionaries) via standard in.
+//
 // This should only need to be called when we add new dependencies or update existing ones. Calling
 // it with already archived files should be fine - the mirror is a CAS, so the update should be a
 // no-op. The files will be uploaded to the mirror with some metadata about where they came from.
@@ -40,6 +41,7 @@ func main() {
 		sha256Hash    = flag.String("sha256", "", "The sha256sum of the url to mirror. --url must also be set.")
 		jsonFromStdin = flag.Bool("json", false, "If set, read JSON from stdin that consists of a list of objects.")
 		noSuffix      = flag.Bool("no_suffix", false, "If true, this is presumed to be a binary which needs no suffix (e.g. executable)")
+		addSuffix     = flag.String("add_suffix", "", "If set, this will be the suffix of the file uploaded")
 	)
 	flag.Parse()
 
@@ -67,10 +69,10 @@ func main() {
 			fatalf("Could not process data from stdin: %s", err)
 		}
 	} else if *url != "" {
-		if err := processOneDownload(workDir, *url, *sha256Hash, *noSuffix); err != nil {
+		if err := processOneDownload(workDir, *url, *sha256Hash, *addSuffix, *noSuffix); err != nil {
 			fatalf("Error while processing entry: %s", err)
 		}
-		fmt.Printf("https://storage.googleapis.com/skia-world-readable/bazel/%s%s\n", *sha256Hash, getSuffix(*url))
+		fmt.Printf("https://storage.googleapis.com/skia-world-readable/bazel/%s%s%s\n", *sha256Hash, getSuffix(*url), *addSuffix)
 	} else {
 		if err := processOneLocalFile(*file, *sha256Hash); err != nil {
 			fatalf("Error while processing entry: %s", err)
@@ -95,7 +97,7 @@ func processJSON(workDir string, b []byte) error {
 		return skerr.Wrapf(err, "unmarshalling JSON")
 	}
 	for _, entry := range entries {
-		if err := processOneDownload(workDir, entry.URL, entry.SHA256, false); err != nil {
+		if err := processOneDownload(workDir, entry.URL, entry.SHA256, "", false); err != nil {
 			return skerr.Wrapf(err, "while processing entry: %+v", entry)
 		}
 	}
@@ -107,8 +109,8 @@ func fixStarlarkComments(b []byte) string {
 	return strings.ReplaceAll(string(b), "#", "//")
 }
 
-func processOneDownload(workDir, url, hash string, noSuffix bool) error {
-	suf := getSuffix(url)
+func processOneDownload(workDir, url, hash, addSuffix string, noSuffix bool) error {
+	suf := getSuffix(url) + addSuffix
 	if !noSuffix && suf == "" {
 		return skerr.Fmt("%s is not a supported file type", url)
 	}

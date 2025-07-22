@@ -4,15 +4,29 @@
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
-
 #include "src/gpu/ganesh/tessellate/GrStrokeTessellationShader.h"
 
+#include "include/core/SkMatrix.h"
+#include "include/core/SkPaint.h"
+#include "include/core/SkString.h"
+#include "include/private/base/SkAssert.h"
+#include "include/private/base/SkMacros.h"
+#include "include/private/base/SkPoint_impl.h"
+#include "include/private/gpu/ganesh/GrTypesPriv.h"
+#include "src/core/SkSLTypeShared.h"
 #include "src/gpu/KeyBuilder.h"
+#include "src/gpu/ganesh/GrGeometryProcessor.h"
+#include "src/gpu/ganesh/GrShaderCaps.h"
+#include "src/gpu/ganesh/GrShaderVar.h"
 #include "src/gpu/ganesh/glsl/GrGLSLFragmentShaderBuilder.h"
+#include "src/gpu/ganesh/glsl/GrGLSLProgramDataManager.h"
+#include "src/gpu/ganesh/glsl/GrGLSLUniformHandler.h"
 #include "src/gpu/ganesh/glsl/GrGLSLVarying.h"
 #include "src/gpu/ganesh/glsl/GrGLSLVertexGeoBuilder.h"
 #include "src/gpu/tessellate/FixedCountBufferUtils.h"
-#include "src/gpu/tessellate/WangsFormula.h"
+
+#include <cmath>
+#include <cstdint>
 
 namespace {
 
@@ -126,14 +140,14 @@ GrStrokeTessellationShader::GrStrokeTessellationShader(const GrShaderCaps& shade
         fAttribs.emplace_back("curveTypeAttr", kFloat_GrVertexAttribType, SkSLType::kFloat);
     }
 
-    this->setInstanceAttributesWithImplicitOffsets(fAttribs.data(), fAttribs.count());
+    this->setInstanceAttributesWithImplicitOffsets(fAttribs.data(), fAttribs.size());
     SkASSERT(this->instanceStride() == sizeof(SkPoint) * 4 + PatchAttribsStride(fPatchAttribs));
     if (!shaderCaps.fVertexIDSupport) {
         constexpr static Attribute kVertexAttrib("edgeID", kFloat_GrVertexAttribType,
                                                     SkSLType::kFloat);
         this->setVertexAttributesWithImplicitOffsets(&kVertexAttrib, 1);
     }
-    SkASSERT(fAttribs.count() <= kMaxAttribCount);
+    SkASSERT(fAttribs.size() <= kMaxAttribCount);
 }
 
 // This base class emits shader code for our parametric/radial stroke tessellation algorithm

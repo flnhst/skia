@@ -8,11 +8,15 @@
 #ifndef TriangulatingPathRenderer_DEFINED
 #define TriangulatingPathRenderer_DEFINED
 
+#include "include/core/SkTypes.h"
+
 #if !defined(SK_ENABLE_OPTIMIZE_SIZE)
 
 #include "src/gpu/ganesh/PathRenderer.h"
 
-namespace skgpu::v1 {
+class GrStyledShape;
+
+namespace skgpu::ganesh {
 
 /**
  *  Subclass that renders the path by converting to screen-space trapezoids plus
@@ -21,7 +25,7 @@ namespace skgpu::v1 {
 class TriangulatingPathRenderer final : public PathRenderer {
 public:
     TriangulatingPathRenderer();
-#if GR_TEST_UTILS
+#if defined(GPU_TEST_UTILS)
     void setMaxVerbCount(int maxVerbCount) { fMaxVerbCount = maxVerbCount; }
 #endif
 
@@ -39,7 +43,7 @@ private:
     int fMaxVerbCount;
 };
 
-} // namespace skgpu::v1
+}  // namespace skgpu::ganesh
 
 #endif // SK_ENABLE_OPTIMIZE_SIZE
 

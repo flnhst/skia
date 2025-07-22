@@ -14,12 +14,13 @@
 #include "include/core/SkRefCnt.h"
 #include "include/core/SkSurfaceProps.h"
 #include "include/core/SkTypes.h"
-#include "include/gpu/GrDirectContext.h"
+#include "include/gpu/ganesh/GrDirectContext.h"
 #include "include/private/SkColorData.h"
-#include "include/private/SkTArray.h"
+#include "include/private/base/SkTArray.h"
 #include "include/private/gpu/ganesh/GrTypesPriv.h"
-#include "src/core/SkArenaAlloc.h"
+#include "src/base/SkArenaAlloc.h"
 #include "src/core/SkSLTypeShared.h"
+#include "src/gpu/SkBackingFit.h"
 #include "src/gpu/ganesh/GrBuffer.h"
 #include "src/gpu/ganesh/GrColor.h"
 #include "src/gpu/ganesh/GrDirectContextPriv.h"
@@ -49,6 +50,8 @@
 #include <initializer_list>
 #include <memory>
 #include <utility>
+
+using namespace skia_private;
 
 class GrAppliedClip;
 class GrDstProxyView;
@@ -186,7 +189,7 @@ private:
     void onExecute(GrOpFlushState* flushState, const SkRect& chainBounds) override {
         GrPipeline pipeline(fScissorTest, SkBlendMode::kSrc,
                             flushState->drawOpArgs().writeView().swizzle());
-        SkSTArray<kNumMeshes, GrSimpleMesh> meshes;
+        STArray<kNumMeshes, GrSimpleMesh> meshes;
         for (int i = 0; i < kNumMeshes; ++i) {
             GrSimpleMesh& mesh = meshes.push_back();
             mesh.set(fVertexBuffer, 4, 4 * i);
@@ -227,9 +230,13 @@ DEF_GANESH_TEST_FOR_RENDERING_CONTEXTS(GrPipelineDynamicStateTest,
     auto dContext = ctxInfo.directContext();
     GrResourceProvider* rp = dContext->priv().resourceProvider();
 
-    auto sdc = skgpu::v1::SurfaceDrawContext::Make(
-            dContext, GrColorType::kRGBA_8888, nullptr, SkBackingFit::kExact,
-            {kScreenSize, kScreenSize}, SkSurfaceProps(), /*label=*/{});
+    auto sdc = skgpu::ganesh::SurfaceDrawContext::Make(dContext,
+                                                       GrColorType::kRGBA_8888,
+                                                       nullptr,
+                                                       SkBackingFit::kExact,
+                                                       {kScreenSize, kScreenSize},
+                                                       SkSurfaceProps(),
+                                                       /*label=*/{});
     if (!sdc) {
         ERRORF(reporter, "could not create render target context.");
         return;

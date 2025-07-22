@@ -11,13 +11,18 @@
 #include <functional>
 
 #include "include/gpu/graphite/Recorder.h"
+#include "src/gpu/graphite/ResourceCache.h"
+#include "src/gpu/graphite/ResourceProvider.h"
 #include "src/gpu/graphite/SharedContext.h"
 
-class SkShaderCodeDictionary;
+class SkBitmap;
+class SkImage;
 
 namespace skgpu::graphite {
 
+class ShaderCodeDictionary;
 class TextureProxy;
+class UploadList;
 
 class RecorderPriv {
 public:
@@ -26,18 +31,18 @@ public:
 
     const Caps* caps() const { return fRecorder->fSharedContext->caps(); }
 
-    ResourceProvider* resourceProvider() { return fRecorder->fResourceProvider.get(); }
+    ResourceProvider* resourceProvider() { return fRecorder->fResourceProvider; }
 
-    const SkRuntimeEffectDictionary* runtimeEffectDictionary() const {
+    const RuntimeEffectDictionary* runtimeEffectDictionary() const {
         return fRecorder->fRuntimeEffectDict.get();
     }
-    SkRuntimeEffectDictionary* runtimeEffectDictionary() {
+    RuntimeEffectDictionary* runtimeEffectDictionary() {
         return fRecorder->fRuntimeEffectDict.get();
     }
-    const SkShaderCodeDictionary* shaderCodeDictionary() const {
+    const ShaderCodeDictionary* shaderCodeDictionary() const {
         return fRecorder->fSharedContext->shaderCodeDictionary();
     }
-    SkShaderCodeDictionary* shaderCodeDictionary() {
+    ShaderCodeDictionary* shaderCodeDictionary() {
         return fRecorder->fSharedContext->shaderCodeDictionary();
     }
 
@@ -45,33 +50,47 @@ public:
         return fRecorder->fSharedContext->rendererProvider();
     }
 
-    UniformDataCache* uniformDataCache() { return fRecorder->fUniformDataCache.get(); }
+    Protected isProtected() const {
+        return fRecorder->fSharedContext->isProtected();
+    }
+
+    UploadList* rootUploadList() { return fRecorder->fRootUploads.get(); }
     TextureDataCache* textureDataCache() { return fRecorder->fTextureDataCache.get(); }
     DrawBufferManager* drawBufferManager() { return fRecorder->fDrawBufferManager.get(); }
     UploadBufferManager* uploadBufferManager() { return fRecorder->fUploadBufferManager.get(); }
 
-    AtlasManager* atlasManager() { return fRecorder->fAtlasManager.get(); }
+    AtlasProvider* atlasProvider() { return fRecorder->fAtlasProvider.get(); }
     TokenTracker* tokenTracker() { return fRecorder->fTokenTracker.get(); }
     sktext::gpu::StrikeCache* strikeCache() { return fRecorder->fStrikeCache.get(); }
     sktext::gpu::TextBlobRedrawCoordinator* textBlobCache() {
         return fRecorder->fTextBlobCache.get();
     }
+    ProxyCache* proxyCache() { return this->resourceProvider()->proxyCache(); }
 
-    // Inserts a texture to buffer transfer task, used by asyncReadPixels methods in Context
-    struct PixelTransferResult {
-        using ConversionFn = void(void* dst, const void* mappedBuffer);
-        // If null then the transfer could not be performed. Otherwise this buffer will contain
-        // the pixel data when the transfer is complete.
-        sk_sp<Buffer> fTransferBuffer;
-        // If this is null then the transfer buffer will contain the data in the requested
-        // color type. Otherwise, when the transfer is done this must be called to convert
-        // from the transfer buffer's color type to the requested color type.
-        std::function<ConversionFn> fPixelConverter;
-    };
-    PixelTransferResult transferPixels(const TextureProxy*,
-                                       const SkImageInfo& srcImageInfo,
-                                       const SkColorInfo& dstColorInfo,
-                                       const SkIRect& srcRect);
+    // NOTE: Temporary access for DrawTask to manipulate pending read counts.
+    void addPendingRead(const TextureProxy*);
+
+    static sk_sp<TextureProxy> CreateCachedProxy(Recorder*,
+                                                 const SkBitmap&,
+                                                 std::string_view label);
+
+    uint32_t uniqueID() const { return fRecorder->fUniqueID; }
+
+#if defined(SK_DEBUG)
+    uint32_t nextRecordingID() const { return fRecorder->fNextRecordingID; }
+#endif
+
+    size_t getResourceCacheLimit() const;
+
+#if defined(GPU_TEST_UTILS)
+    bool deviceIsRegistered(Device*) const;
+    ResourceCache* resourceCache() { return fRecorder->fResourceProvider->resourceCache(); }
+    SharedContext* sharedContext() { return fRecorder->fSharedContext.get(); }
+    // used by the Context that created this Recorder to set a back pointer
+    void setContext(Context*);
+    Context* context() { return fRecorder->fContext; }
+    void issueFlushToken();
+#endif
 
 private:
     explicit RecorderPriv(Recorder* recorder) : fRecorder(recorder) {}

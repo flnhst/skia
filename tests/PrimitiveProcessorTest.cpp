@@ -12,13 +12,13 @@
 #include "include/core/SkString.h"
 #include "include/core/SkSurfaceProps.h"
 #include "include/core/SkTypes.h"
-#include "include/gpu/GrConfig.h"
-#include "include/gpu/GrDirectContext.h"
+#include "include/gpu/ganesh/GrDirectContext.h"
 #include "include/private/gpu/ganesh/GrTypesPriv.h"
-#include "src/core/SkArenaAlloc.h"
+#include "src/base/SkArenaAlloc.h"
 #include "src/core/SkPointPriv.h"
 #include "src/core/SkSLTypeShared.h"
 #include "src/gpu/KeyBuilder.h"
+#include "src/gpu/SkBackingFit.h"
 #include "src/gpu/ganesh/GrAppliedClip.h"
 #include "src/gpu/ganesh/GrCaps.h"
 #include "src/gpu/ganesh/GrDirectContextPriv.h"
@@ -206,13 +206,13 @@ DEF_GANESH_TEST_FOR_ALL_CONTEXTS(VertexAttributeCount,
     GrGpu* gpu = dContext->priv().getGpu();
 #endif
 
-    auto sdc = skgpu::v1::SurfaceDrawContext::Make(dContext,
-                                                   GrColorType::kRGBA_8888,
-                                                   nullptr,
-                                                   SkBackingFit::kApprox,
-                                                   {1, 1},
-                                                   SkSurfaceProps(),
-                                                   /*label=*/{});
+    auto sdc = skgpu::ganesh::SurfaceDrawContext::Make(dContext,
+                                                       GrColorType::kRGBA_8888,
+                                                       nullptr,
+                                                       SkBackingFit::kApprox,
+                                                       {1, 1},
+                                                       SkSurfaceProps(),
+                                                       /*label=*/{});
     if (!sdc) {
         ERRORF(reporter, "Could not create render target context.");
         return;

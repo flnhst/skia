@@ -11,8 +11,9 @@
 #include "include/core/SkPoint.h"
 #include "include/core/SkScalar.h"
 #include "include/core/SkTypes.h"
-#include "include/private/SkMalloc.h"
-#include "src/core/SkArenaAlloc.h"
+#include "include/private/base/SkDebug.h"
+#include "include/private/base/SkMalloc.h"
+#include "src/base/SkArenaAlloc.h"
 #include "src/pathops/SkPathOpsDebug.h"
 #include "src/pathops/SkPathOpsPoint.h"
 #include "src/pathops/SkPathOpsTCurve.h"
@@ -149,7 +150,7 @@ struct SkDCubic {
 
     static const int gPrecisionUnit;
     SkDPoint fPts[kPointCount];
-    SkDEBUGCODE(SkOpGlobalState* fDebugGlobalState);
+    SkDEBUGCODE(SkOpGlobalState* fDebugGlobalState;)
 };
 
 /* Given the set [0, 1, 2, 3], and two of the four members, compute an XOR mask

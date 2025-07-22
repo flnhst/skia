@@ -16,7 +16,7 @@
 #include "include/core/SkSize.h"
 #include "include/core/SkString.h"
 #include "include/core/SkTypes.h"
-#include "include/private/SkTDArray.h"
+#include "include/private/base/SkTDArray.h"
 #include "src/utils/SkPolyUtils.h"
 #include "tools/ToolUtils.h"
 
@@ -429,14 +429,14 @@ public:
     }
 
 protected:
-    SkString onShortName() override {
+    SkString getName() const override {
         if (fConvexOnly) {
             return SkString("convex-polygon-inset");
         } else {
             return SkString("simple-polygon-offset");
         }
     }
-    SkISize onISize() override { return SkISize::Make(kGMWidth, kGMHeight); }
+    SkISize getISize() override { return SkISize::Make(kGMWidth, kGMHeight); }
     bool runAsBench() const override { return true; }
 
     static void GetConvexPolygon(int index, SkPathDirection dir,

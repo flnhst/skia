@@ -10,7 +10,7 @@
 
 #include "src/gpu/graphite/QueueManager.h"
 
-#include "webgpu/webgpu_cpp.h"
+#include "webgpu/webgpu_cpp.h"  // NO_G3_REWRITE
 
 namespace skgpu::graphite {
 
@@ -19,16 +19,20 @@ class SharedContext;
 
 class DawnQueueManager : public QueueManager {
 public:
-    DawnQueueManager(wgpu::Queue fQueue, const SharedContext*);
+    DawnQueueManager(wgpu::Queue, const SharedContext*);
     ~DawnQueueManager() override {}
+
+    const wgpu::Queue& dawnQueue() const { return fQueue; }
+
+    void tick() const override;
 
 private:
     const DawnSharedContext* dawnSharedContext() const;
 
-    std::unique_ptr<CommandBuffer> getNewCommandBuffer(ResourceProvider*) override;
+    std::unique_ptr<CommandBuffer> getNewCommandBuffer(ResourceProvider*, Protected) override;
     OutstandingSubmission onSubmitToGpu() override;
 
-#if GRAPHITE_TEST_UTILS
+#if defined(GPU_TEST_UTILS)
     void startCapture() override;
     void stopCapture() override;
 #endif

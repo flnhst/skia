@@ -9,12 +9,13 @@
 #include "include/core/SkRect.h"
 #include "include/core/SkScalar.h"
 #include "include/core/SkTypes.h"
+#include "include/private/base/SkDebug.h"
 #include "src/core/SkPointPriv.h"
 #include "tests/Test.h"
 
 #include <cfloat>
-#include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <string>
 
 static void test_casts(skiatest::Reporter* reporter) {
@@ -115,9 +116,9 @@ static void test_overflow(skiatest::Reporter* reporter) {
     length = force_as_float(reporter, length);
 
     // expect this to be non-finite, but dump the results if not.
-    if (SkScalarIsFinite(length)) {
+    if (SkIsFinite(length)) {
         SkDebugf("length(%g, %g) == %g\n", pt.fX, pt.fY, length);
-        REPORTER_ASSERT(reporter, !SkScalarIsFinite(length));
+        REPORTER_ASSERT(reporter, !SkIsFinite(length));
     }
 
     // this should succeed, even though we can't represent length

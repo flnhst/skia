@@ -21,8 +21,6 @@ func (b *taskBuilder) nanobenchFlags(doUpload bool) {
 		args = append(args, "--gpuStatsDump", "true")
 	}
 
-	args = append(args, "--scales", "1.0", "1.1")
-
 	configs := []string{}
 	if b.cpu() {
 		args = append(args, "--nogpu")
@@ -49,11 +47,7 @@ func (b *taskBuilder) nanobenchFlags(doUpload bool) {
 		sampleCount := 8
 		if b.matchOs("Android") || b.os("iOS") {
 			sampleCount = 4
-			// The NVIDIA_Shield has a regular OpenGL implementation. We bench that
-			// instead of ES.
-			if !b.model("NVIDIA_Shield") {
-				glPrefix = "gles"
-			}
+			glPrefix = "gles"
 			// iOS crashes with MSAA (skia:6399)
 			// Nexus7 (Tegra3) does not support MSAA.
 			// MSAA is disabled on Pixel3a (https://b.corp.google.com/issues/143074513).
@@ -61,11 +55,16 @@ func (b *taskBuilder) nanobenchFlags(doUpload bool) {
 			if b.os("iOS") || b.model("Nexus7", "Pixel3a", "Pixel5") {
 				sampleCount = 0
 			}
-		} else if b.matchGpu("AppleM1") {
+		} else if b.matchGpu("AppleM") {
 			sampleCount = 4
 		} else if b.matchGpu("Intel") {
 			// MSAA doesn't work well on Intel GPUs chromium:527565, chromium:983926
-			sampleCount = 0
+			if b.gpu("IntelIrisXe") && b.matchOs("Win") && b.extraConfig("ANGLE") {
+				// Make an exception for newer GPUs + D3D
+				args = append(args, "--allowMSAAOnNewIntel", "true")
+			} else {
+				sampleCount = 0
+			}
 		} else if b.os("ChromeOS") {
 			glPrefix = "gles"
 		}
@@ -92,7 +91,7 @@ func (b *taskBuilder) nanobenchFlags(doUpload bool) {
 
 		if sampleCount > 0 {
 			configs = append(configs, fmt.Sprintf("%smsaa%d", glPrefix, sampleCount))
-			if b.gpu("QuadroP400", "MaliG77", "AppleM1") {
+			if b.matchGpu("QuadroP400", "MaliG77", "AppleM") {
 				configs = append(configs, fmt.Sprintf("%sdmsaa", glPrefix))
 			}
 		}
@@ -105,12 +104,7 @@ func (b *taskBuilder) nanobenchFlags(doUpload bool) {
 
 		if b.extraConfig("Vulkan") {
 			configs = []string{"vk"}
-			if b.matchOs("Android") {
-				// skbug.com/9274
-				if !b.model("Pixel2XL") {
-					configs = append(configs, "vkmsaa4")
-				}
-			} else {
+			if !b.matchOs("Android") {
 				// MSAA doesn't work well on Intel GPUs chromium:527565, chromium:983926, skia:9023
 				if !b.matchGpu("Intel") {
 					configs = append(configs, "vkmsaa8")
@@ -122,7 +116,7 @@ func (b *taskBuilder) nanobenchFlags(doUpload bool) {
 		}
 		if b.extraConfig("Metal") && !b.extraConfig("Graphite") {
 			configs = []string{"mtl"}
-			if b.os("iOS") {
+			if b.os("iOS") || b.gpu("AppleM3") {
 				configs = append(configs, "mtlmsaa4")
 			} else {
 				configs = append(configs, "mtlmsaa8")
@@ -151,8 +145,37 @@ func (b *taskBuilder) nanobenchFlags(doUpload bool) {
 		}
 
 		if b.extraConfig("Graphite") {
-			if b.extraConfig("Metal") {
-				configs = []string{"grmtl"}
+			if b.extraConfig("Dawn") {
+				if b.extraConfig("D3D11") {
+					configs = []string{"grdawn_d3d11"}
+				}
+				if b.extraConfig("D3D12") {
+					configs = []string{"grdawn_d3d12"}
+				}
+				if b.extraConfig("Metal") {
+					configs = []string{"grdawn_mtl"}
+				}
+				if b.extraConfig("Vulkan") {
+					configs = []string{"grdawn_vk"}
+				}
+				if b.extraConfig("GL") {
+					configs = []string{"grdawn_gl"}
+				}
+				if b.extraConfig("GLES") {
+					configs = []string{"grdawn_gles"}
+				}
+
+				if b.extraConfig("TintIR") {
+					args = append(args, "--useTintIR")
+				}
+			}
+			if b.extraConfig("Native") {
+				if b.extraConfig("Metal") {
+					configs = []string{"grmtl"}
+				}
+				if b.extraConfig("Vulkan") {
+					configs = []string{"grvk"}
+				}
 			}
 		}
 
@@ -168,9 +191,9 @@ func (b *taskBuilder) nanobenchFlags(doUpload bool) {
 	args = append(args, "--config")
 	args = append(args, configs...)
 
-	// Use 4 internal msaa samples on mobile and AppleM1, otherwise 8.
+	// Use 4 internal msaa samples on mobile and AppleM*, otherwise 8.
 	args = append(args, "--internalSamples")
-	if b.matchOs("Android") || b.os("iOS") || b.matchGpu("AppleM1") {
+	if b.matchOs("Android") || b.os("iOS") || b.matchGpu("AppleM") {
 		args = append(args, "4")
 	} else {
 		args = append(args, "8")
@@ -198,9 +221,6 @@ func (b *taskBuilder) nanobenchFlags(doUpload bool) {
 		match = append(match, "~blurroundrect")
 		match = append(match, "~patch_grid") // skia:2847
 		match = append(match, "~desk_carsvg")
-	}
-	if b.matchModel("Nexus5") {
-		match = append(match, "~keymobi_shop_mobileweb_ebay_com.skp") // skia:5178
 	}
 	if b.os("iOS") {
 		match = append(match, "~blurroundrect")
@@ -240,25 +260,22 @@ func (b *taskBuilder) nanobenchFlags(doUpload bool) {
 		match = append(match, "~top25desk_ebay_com.skp_1.1")
 		match = append(match, "~top25desk_ebay.skp_1.1")
 	}
-	if b.extraConfig("Vulkan") && b.gpu("GTX660") {
-		// skia:8523 skia:9271
-		match = append(match, "~compositing_images")
+	if b.gpu("Tegra3") {
+		// skbug.com/338376730
+		match = append(match, "~GM_matrixconvolution_bigger")
+		match = append(match, "~GM_matrixconvolution_biggest")
 	}
 	if b.extraConfig("ASAN") && b.cpu() {
 		// floor2int_undef benches undefined behavior, so ASAN correctly complains.
 		match = append(match, "~^floor2int_undef$")
-	}
-	if b.model("AcerChromebook13_CB5_311") && b.gpu() {
-		// skia:7551
-		match = append(match, "~^shapes_rrect_inner_rrect_50_500x500$")
 	}
 	if b.model("Pixel3a") {
 		// skia:9413
 		match = append(match, "~^path_text$")
 		match = append(match, "~^path_text_clipped_uncached$")
 	}
-	if b.model("Pixel3") && b.extraConfig("Vulkan") {
-		// skia:9972
+	if b.model("Pixel4XL") && b.extraConfig("Vulkan") {
+		// skia:9413?
 		match = append(match, "~^path_text_clipped_uncached$")
 	}
 
@@ -268,12 +285,20 @@ func (b *taskBuilder) nanobenchFlags(doUpload bool) {
 		match = append(match, "~^draw_coverage")
 		match = append(match, "~^compositing_images")
 	}
+	if b.extraConfig("Graphite") && b.extraConfig("Dawn") {
+		if b.matchOs("Win10") && b.matchGpu("RadeonR9M470X") {
+			// The Dawn Win10 Radeon allocates too many Vulkan resources in bulk rect tests (b/318725123)
+			match = append(match, "~bulkrect_1000_grid_uniqueimages")
+			match = append(match, "~bulkrect_1000_random_uniqueimages")
+		}
+	}
 
 	if b.model(DONT_REDUCE_OPS_TASK_SPLITTING_MODELS...) {
 		args = append(args, "--dontReduceOpsTaskSplitting", "true")
 	}
-	if b.model("NUC7i5BNK") {
-		args = append(args, "--gpuResourceCacheLimit", "16777216")
+	if !b.isLinux() && b.extraConfig("Vulkan") && b.gpu("QuadroP400") {
+		// skia:14302 (desk_carsvg.skp hangs indefinitely on Windows QuadroP400 vkdmsaa configs)
+		match = append(match, "~desk_carsvg.skp")
 	}
 
 	if b.extraConfig("DMSAAStats") {

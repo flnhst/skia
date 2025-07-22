@@ -14,26 +14,31 @@
 #include "include/core/SkMaskFilter.h"
 #include "include/core/SkPaint.h"
 #include "include/core/SkPath.h"
+#include "include/core/SkPathUtils.h"
 #include "include/core/SkPoint.h"
 #include "include/core/SkRect.h"
 #include "include/core/SkScalar.h"
 #include "include/effects/SkColorMatrix.h"
-#include "include/private/SkTemplates.h"
-#include "src/core/SkAutoMalloc.h"
+#include "include/private/base/SkTemplates.h"
+#include "src/base/SkAutoMalloc.h"
 #include "src/core/SkBlurMask.h"
 #include "src/core/SkPaintPriv.h"
 #include "src/core/SkReadBuffer.h"
 #include "src/core/SkWriteBuffer.h"
 #include "tests/Test.h"
+#include "tools/fonts/FontToolUtils.h"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <initializer_list>
 #include <optional>
-#include <string>
 
 #undef ASSERT
+
+using namespace skia_private;
 
 DEF_TEST(Paint_copy, reporter) {
     SkPaint paint;
@@ -80,7 +85,7 @@ DEF_TEST(Paint_regression_cubic, reporter) {
 
     paint.setStyle(SkPaint::kStroke_Style);
     paint.setStrokeWidth(SkIntToScalar(2));
-    paint.getFillPath(path, &stroke);
+    skpathutils::FillPathWithPaint(path, paint, &stroke);
     strokeR = stroke.getBounds();
 
     SkRect maxR = fillR;
@@ -124,7 +129,7 @@ DEF_TEST(Paint_flattening, reporter) {
     FOR_SETUP(m, joins, setStrokeJoin)
     FOR_SETUP(p, styles, setStyle)
 
-    SkBinaryWriteBuffer writer;
+    SkBinaryWriteBuffer writer({});
     SkPaintPriv::Flatten(paint, writer);
 
     SkAutoMalloc buf(writer.bytesWritten());
@@ -142,7 +147,7 @@ DEF_TEST(Paint_flattening, reporter) {
 // found and fixed for android: not initializing rect for string's of length 0
 DEF_TEST(Paint_regression_measureText, reporter) {
 
-    SkFont font;
+    SkFont font = ToolUtils::DefaultFont();
     font.setSize(12.0f);
 
     SkRect r;
@@ -160,7 +165,7 @@ DEF_TEST(Paint_MoreFlattening, r) {
     paint.setColor(0x00AABBCC);
     paint.setBlendMode(SkBlendMode::kModulate);
 
-    SkBinaryWriteBuffer writer;
+    SkBinaryWriteBuffer writer({});
     SkPaintPriv::Flatten(paint, writer);
 
     SkAutoMalloc buf(writer.bytesWritten());
@@ -200,16 +205,16 @@ DEF_TEST(Paint_nothingToDraw, r) {
 }
 
 DEF_TEST(Font_getpos, r) {
-    SkFont font;
+    SkFont font = ToolUtils::DefaultFont();
     const char text[] = "Hamburgefons!@#!#23425,./;'[]";
     int count = font.countText(text, strlen(text), SkTextEncoding::kUTF8);
-    SkAutoTArray<uint16_t> glyphStorage(count);
+    AutoTArray<uint16_t> glyphStorage(count);
     uint16_t* glyphs = glyphStorage.get();
     (void)font.textToGlyphs(text, strlen(text), SkTextEncoding::kUTF8, glyphs, count);
 
-    SkAutoTArray<SkScalar> widthStorage(count);
-    SkAutoTArray<SkScalar> xposStorage(count);
-    SkAutoTArray<SkPoint> posStorage(count);
+    AutoTArray<SkScalar> widthStorage(count);
+    AutoTArray<SkScalar> xposStorage(count);
+    AutoTArray<SkPoint> posStorage(count);
 
     SkScalar* widths = widthStorage.get();
     SkScalar* xpos = xposStorage.get();

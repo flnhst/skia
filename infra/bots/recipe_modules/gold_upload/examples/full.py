@@ -12,7 +12,6 @@ DEPS = [
   'recipe_engine/path',
   'recipe_engine/platform',
   'recipe_engine/properties',
-  'recipe_engine/python',
   'recipe_engine/step',
   'flavor',
   'run',
@@ -28,7 +27,7 @@ def RunSteps(api):
 def GenTests(api):
   yield (
       api.test('upload_tests') +
-      api.properties(buildername='Test-Android-Clang-Pixel2XL-Some-GPU-arm64-Debug-All',
+      api.properties(buildername='Test-Android12-Clang-Pixel5-GPU-Adreno620-arm64-Release-All-Android_Vulkan',
                      repository='https://skia.googlesource.com/skia.git',
                      gs_bucket='skia-infra-gm',
                      patch_ref='89/456789/12',
