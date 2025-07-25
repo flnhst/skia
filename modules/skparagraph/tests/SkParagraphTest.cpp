@@ -7934,7 +7934,7 @@ UNIX_ONLY_TEST(SkParagraph_RtlEllipsis1, reporter) {
     ParagraphStyle paragraph_style;
     paragraph_style.setTextStyle(text_style);
     paragraph_style.setTextDirection(TextDirection::kRtl);
-    paragraph_style.setEllipsis(u"\u2026");
+    paragraph_style.setEllipsis(SkString(u"\u2026"));
     paragraph_style.setTextAlign(TextAlign::kStart);
     paragraph_style.setMaxLines(1);
     ParagraphBuilderImpl builder(paragraph_style, fontCollection, get_unicode());
@@ -7971,7 +7971,7 @@ UNIX_ONLY_TEST(SkParagraph_RtlEllipsis2, reporter) {
     ParagraphStyle paragraph_style;
     paragraph_style.setTextStyle(text_style);
     paragraph_style.setTextDirection(TextDirection::kRtl);
-    paragraph_style.setEllipsis(u"\u2026");
+    paragraph_style.setEllipsis(SkString(u"\u2026"));
     paragraph_style.setTextAlign(TextAlign::kStart);
     paragraph_style.setMaxLines(2);
     ParagraphBuilderImpl builder(paragraph_style, fontCollection, get_unicode());
@@ -8016,7 +8016,7 @@ UNIX_ONLY_TEST(SkParagraph_TextEditingFunctionality, reporter) {
     const size_t len = strlen(text);
 
     ParagraphStyle paragraph_style;
-    paragraph_style.setEllipsis(u"\u2026");
+    paragraph_style.setEllipsis(SkString(u"\u2026"));
     paragraph_style.setMaxLines(3);
     ParagraphBuilderImpl builder(paragraph_style, fontCollection, get_unicode());
     TextStyle text_style;
@@ -8108,7 +8108,7 @@ UNIX_ONLY_TEST(SkParagraph_getLineNumberAt_Ellipsis, reporter) {
     const size_t len = strlen(text);
 
     ParagraphStyle paragraph_style;
-    paragraph_style.setEllipsis(u"\u2026");
+    paragraph_style.setEllipsis(SkString(u"\u2026"));
     paragraph_style.setMaxLines(2);
 
     TextStyle text_style;

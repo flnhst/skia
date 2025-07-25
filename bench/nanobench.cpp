@@ -32,6 +32,7 @@
 #include "include/core/SkPictureRecorder.h"
 #include "include/core/SkString.h"
 #include "include/core/SkSurface.h"
+#include "include/core/SkBitmap.h"
 #include "include/encode/SkPngEncoder.h"
 #include "include/private/base/SkMacros.h"
 #include "src/base/SkAutoMalloc.h"

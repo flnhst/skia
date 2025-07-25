@@ -6,6 +6,8 @@
 #include "modules/skparagraph/src/ParagraphImpl.h"
 #include "modules/skshaper/include/SkShaper_harfbuzz.h"
 
+#include <iostream>
+
 namespace {
 #if defined(SK_BUILD_FOR_MAC) || defined(SK_BUILD_FOR_IOS)
     const char* kColorEmojiFontMac = "Apple Color Emoji";
@@ -46,11 +48,18 @@ size_t FontCollection::FamilyKey::Hasher::operator()(const FontCollection::Famil
 
 FontCollection::FontCollection()
         : fEnableFontFallback(true)
-        , fDefaultFamilyNames({SkString(DEFAULT_FONT_FAMILY)}) { }
+        , fDefaultFamilyNames({SkString(DEFAULT_FONT_FAMILY)}) {
+    std::cout << "FontCollection::FontCollection(): called." << std::endl;
+}
 
-FontCollection::~FontCollection() { }
+FontCollection::~FontCollection()
+{
+    std::cout << "FontCollection::~FontCollection(): called." << std::endl;
+}
 
 sk_sp<FontCollection> FontCollection::Make() {
+    std::cout << "FontCollection::Make(): called." << std::endl;
+
     return sk_make_sp<FontCollection>();
 }
 
