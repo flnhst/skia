@@ -23,8 +23,8 @@ namespace textlayout {
 struct SKPARAGRAPH_API StrutStyle {
     StrutStyle();
 
-    const SkTArray<SkString>& getFontFamilies() const { return fFontFamilies; }
-    void setFontFamilies(SkTArray<SkString> families) { fFontFamilies = std::move(families); }
+    const skia_private::TArray<SkString>& getFontFamilies() const { return fFontFamilies; }
+    void setFontFamilies(skia_private::TArray<SkString> families) { fFontFamilies = std::move(families); }
 
     SkFontStyle getFontStyle() const { return fFontStyle; }
     void setFontStyle(SkFontStyle fontStyle) { fFontStyle = fontStyle; }
@@ -64,7 +64,7 @@ struct SKPARAGRAPH_API StrutStyle {
 
 private:
 
-    SkTArray<SkString> fFontFamilies;
+    skia_private::TArray<SkString> fFontFamilies;
     SkFontStyle fFontStyle;
     SkScalar fFontSize;
     SkScalar fHeight;

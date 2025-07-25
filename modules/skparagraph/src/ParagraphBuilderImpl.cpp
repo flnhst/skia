@@ -37,11 +37,6 @@
 namespace skia {
 namespace textlayout {
 
-std::unique_ptr<ParagraphBuilder> ParagraphBuilder::make(
-        const ParagraphStyle& style, sk_sp<FontCollection> fontCollection) {
-    return ParagraphBuilderImpl::make(style, fontCollection);
-}
-
 #if !defined(SK_DISABLE_LEGACY_PARAGRAPH_UNICODE)
 
 namespace {
@@ -67,7 +62,7 @@ sk_sp<SkUnicode> get_unicode() {
 }
 }
 
-ParagraphBuilder::ParagraphBuilder(const ParagraphStyle&, sk_sp<FontCollection>) { }
+ParagraphBuilder::ParagraphBuilder() = default;
 
 ParagraphBuilder::~ParagraphBuilder() = default;
 

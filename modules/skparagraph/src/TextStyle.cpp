@@ -8,8 +8,8 @@
 namespace skia {
 namespace textlayout {
 
-const SkTArray<SkString>* TextStyle::kDefaultFontFamilies =
-        new SkTArray<SkString>{SkString(DEFAULT_FONT_FAMILY)};
+const skia_private::TArray<SkString>* TextStyle::kDefaultFontFamilies =
+        new skia_private::TArray<SkString>{SkString(DEFAULT_FONT_FAMILY)};
 
 TextStyle::TextStyle() = default;
 

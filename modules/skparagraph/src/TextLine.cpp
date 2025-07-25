@@ -734,7 +734,7 @@ std::unique_ptr<Run> TextLine::shapeEllipsis(const SkString& ellipsis, const Clu
     }
 
     // Check all allowed fonts
-    SkTArray<sk_sp<SkTypeface>> typefaces = fOwner->fontCollection()->findTypefaces(
+    skia_private::TArray<sk_sp<SkTypeface>> typefaces = fOwner->fontCollection()->findTypefaces(
             textStyle.getFontFamilies(), textStyle.getFontStyle(), textStyle.getFontArguments());
     for (const auto& typeface : typefaces) {
         ellipsisRun = shaped(typeface, nullptr);

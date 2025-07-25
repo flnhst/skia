@@ -34,12 +34,12 @@ public:
     void setTestFontManager(sk_sp<SkFontMgr> fontManager);
     void setDefaultFontManager(sk_sp<SkFontMgr> fontManager);
     void setDefaultFontManager(sk_sp<SkFontMgr> fontManager, const char defaultFamilyName[]);
-    void setDefaultFontManager(sk_sp<SkFontMgr> fontManager, const SkTArray<SkString>& defaultFamilyNames);
+    void setDefaultFontManager(sk_sp<SkFontMgr> fontManager, const skia_private::TArray<SkString>& defaultFamilyNames);
 
     sk_sp<SkFontMgr> getFallbackManager() const { return fDefaultFontManager; }
 
-    SkTArray<sk_sp<SkTypeface>> findTypefaces(const SkTArray<SkString>& familyNames, SkFontStyle fontStyle);
-    SkTArray<sk_sp<SkTypeface>> findTypefaces(const SkTArray<SkString>& familyNames, SkFontStyle fontStyle, const std::optional<FontArguments>& fontArgs);
+    skia_private::TArray<sk_sp<SkTypeface>> findTypefaces(const skia_private::TArray<SkString>& familyNames, SkFontStyle fontStyle);
+    skia_private::TArray<sk_sp<SkTypeface>> findTypefaces(const skia_private::TArray<SkString>& familyNames, SkFontStyle fontStyle, const std::optional<FontArguments>& fontArgs);
 
     sk_sp<SkTypeface> defaultFallback(SkUnichar unicode, SkFontStyle fontStyle, const SkString& locale);
     sk_sp<SkTypeface> defaultEmojiFallback(SkUnichar emojiStart, SkFontStyle fontStyle, const SkString& locale);
@@ -61,13 +61,13 @@ private:
     sk_sp<SkTypeface> matchTypeface(const SkString& familyName, SkFontStyle fontStyle);
 
     struct SKPARAGRAPH_API FamilyKey {
-        FamilyKey(const SkTArray<SkString>& familyNames, SkFontStyle style, const std::optional<FontArguments>& args);
+        FamilyKey(const skia_private::TArray<SkString>& familyNames, SkFontStyle style, const std::optional<FontArguments>& args);
 
         FamilyKey();
 
         virtual ~FamilyKey();
 
-        SkTArray<SkString> fFamilyNames;
+        skia_private::TArray<SkString> fFamilyNames;
         SkFontStyle fFontStyle;
         std::optional<FontArguments> fFontArguments;
 
@@ -82,13 +82,13 @@ private:
     };
 
     bool fEnableFontFallback;
-    skia_private::THashMap<FamilyKey, SkTArray<sk_sp<SkTypeface>>, FamilyKey::Hasher> fTypefaces;
+    skia_private::THashMap<FamilyKey, skia_private::TArray<sk_sp<SkTypeface>>, FamilyKey::Hasher> fTypefaces;
     sk_sp<SkFontMgr> fDefaultFontManager;
     sk_sp<SkFontMgr> fAssetFontManager;
     sk_sp<SkFontMgr> fDynamicFontManager;
     sk_sp<SkFontMgr> fTestFontManager;
 
-    SkTArray<SkString> fDefaultFamilyNames;
+    skia_private::TArray<SkString> fDefaultFamilyNames;
     ParagraphCache fParagraphCache;
 };
 }  // namespace textlayout

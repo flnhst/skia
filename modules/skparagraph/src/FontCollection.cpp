@@ -22,7 +22,7 @@ bool FontCollection::FamilyKey::operator==(const FontCollection::FamilyKey& othe
            fFontArguments == other.fFontArguments;
 }
 
-FontCollection::FamilyKey::FamilyKey(const SkTArray<SkString>& familyNames, SkFontStyle style, const std::optional<FontArguments>& args)
+FontCollection::FamilyKey::FamilyKey(const skia_private::TArray<SkString>& familyNames, SkFontStyle style, const std::optional<FontArguments>& args)
         : fFamilyNames(familyNames), fFontStyle(style), fFontArguments(args) {}
 
 FontCollection::FamilyKey::FamilyKey() {}
@@ -75,7 +75,7 @@ void FontCollection::setDefaultFontManager(sk_sp<SkFontMgr> fontManager,
 }
 
 void FontCollection::setDefaultFontManager(sk_sp<SkFontMgr> fontManager,
-                                           const SkTArray<SkString>& defaultFamilyNames) {
+                                           const skia_private::TArray<SkString>& defaultFamilyNames) {
     fDefaultFontManager = std::move(fontManager);
     fDefaultFamilyNames = defaultFamilyNames;
 }
@@ -102,11 +102,11 @@ std::vector<sk_sp<SkFontMgr>> FontCollection::getFontManagerOrder() const {
     return order;
 }
 
-SkTArray<sk_sp<SkTypeface>> FontCollection::findTypefaces(const SkTArray<SkString>& familyNames, SkFontStyle fontStyle) {
+skia_private::TArray<sk_sp<SkTypeface>> FontCollection::findTypefaces(const skia_private::TArray<SkString>& familyNames, SkFontStyle fontStyle) {
     return findTypefaces(familyNames, fontStyle, std::nullopt);
 }
 
-SkTArray<sk_sp<SkTypeface>> FontCollection::findTypefaces(const SkTArray<SkString>& familyNames, SkFontStyle fontStyle, const std::optional<FontArguments>& fontArgs) {
+skia_private::TArray<sk_sp<SkTypeface>> FontCollection::findTypefaces(const skia_private::TArray<SkString>& familyNames, SkFontStyle fontStyle, const std::optional<FontArguments>& fontArgs) {
     // Look inside the font collections cache first
     FamilyKey familyKey(familyNames, fontStyle, fontArgs);
     auto found = fTypefaces.find(familyKey);
@@ -114,7 +114,7 @@ SkTArray<sk_sp<SkTypeface>> FontCollection::findTypefaces(const SkTArray<SkStrin
         return *found;
     }
 
-    SkTArray<sk_sp<SkTypeface>> typefaces;
+    skia_private::TArray<sk_sp<SkTypeface>> typefaces;
     for (const SkString& familyName : familyNames) {
         sk_sp<SkTypeface> match = matchTypeface(familyName, fontStyle);
         if (match && fontArgs) {

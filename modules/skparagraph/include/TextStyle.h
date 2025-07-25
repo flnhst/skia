@@ -10,6 +10,7 @@
 #include "include/core/SkFontStyle.h"
 #include "include/core/SkPaint.h"
 #include "include/core/SkScalar.h"
+#include "include/private/base/SkTArray.h"
 #include "modules/skparagraph/include/DartTypes.h"
 #include "modules/skparagraph/include/FontArguments.h"
 #include "modules/skparagraph/include/ParagraphPainter.h"
@@ -236,16 +237,16 @@ public:
 
     // Shadows
     size_t getShadowNumber() const { return fTextShadows.size(); }
-    SkTArray<TextShadow> getShadows() const { return fTextShadows; }
+    skia_private::TArray<TextShadow> getShadows() const { return fTextShadows; }
     void addShadow(TextShadow shadow) { fTextShadows.emplace_back(shadow); }
-    void resetShadows() { fTextShadows.reset(); }
+    void resetShadows() { fTextShadows.clear(); }
 
     // Font features
     size_t getFontFeatureNumber() const { return fFontFeatures.size(); }
-    SkTArray<FontFeature> getFontFeatures() const { return fFontFeatures; }
+    skia_private::TArray<FontFeature> getFontFeatures() const { return fFontFeatures; }
     void addFontFeature(const SkString& fontFeature, int value)
         { fFontFeatures.emplace_back(fontFeature, value); }
-    void resetFontFeatures() { fFontFeatures.reset(); }
+    void resetFontFeatures() { fFontFeatures.clear(); }
 
     // Font arguments
     const std::optional<FontArguments>& getFontArguments() const { return fFontArguments; }
@@ -256,8 +257,8 @@ public:
     SkScalar getFontSize() const { return fFontSize; }
     void setFontSize(SkScalar size) { fFontSize = size; }
 
-    const SkTArray<SkString>& getFontFamilies() const { return fFontFamilies; }
-    void setFontFamilies(SkTArray<SkString> families) {
+    const skia_private::TArray<SkString>& getFontFamilies() const { return fFontFamilies; }
+    void setFontFamilies(skia_private::TArray<SkString> families) {
         fFontFamilies = std::move(families);
     }
 
@@ -308,7 +309,7 @@ public:
     static int sizeofVectorInt();
 
 private:
-    static const SkTArray<SkString>* kDefaultFontFamilies;
+    static const skia_private::TArray<SkString>* kDefaultFontFamilies;
 
     Decoration fDecoration = {
             TextDecoration::kNoDecoration,
@@ -322,7 +323,7 @@ private:
 
     SkFontStyle fFontStyle;
 
-    SkTArray<SkString> fFontFamilies = *kDefaultFontFamilies;
+    skia_private::TArray<SkString> fFontFamilies = *kDefaultFontFamilies;
 
     SkScalar fFontSize = 14.0;
     SkScalar fHeight = 1.0;
@@ -343,12 +344,12 @@ private:
     bool fHasForeground = false;
     ParagraphPainter::SkPaintOrID fForeground;
 
-    SkTArray<TextShadow> fTextShadows;
+    skia_private::TArray<TextShadow> fTextShadows;
 
     sk_sp<SkTypeface> fTypeface;
     bool fIsPlaceholder = false;
 
-    SkTArray<FontFeature> fFontFeatures;
+    skia_private::TArray<FontFeature> fFontFeatures;
 
     std::optional<FontArguments> fFontArguments;
 

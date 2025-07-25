@@ -4034,7 +4034,7 @@ public:
         ParagraphStyle paragraph_style;
         paragraph_style.setTextStyle(text_style);
         paragraph_style.setTextAlign(TextAlign::kStart);
-        paragraph_style.setEllipsis(u"\u2026");
+        paragraph_style.setEllipsis(SkString{u"\u2026"});
         auto draw = [&](const std::u16string& text, size_t lines, TextDirection dir) {
             paragraph_style.setMaxLines(lines);
             paragraph_style.setTextDirection(dir);
@@ -4247,7 +4247,7 @@ public:
         ParagraphStyle paragraph_style;
         paragraph_style.setTextStyle(text_style);
         paragraph_style.setTextAlign(TextAlign::kStart);
-        paragraph_style.setEllipsis(u"\u2026");
+        paragraph_style.setEllipsis(SkString{u"\u2026"});
         auto draw = [&](const std::u16string& text) {
             paragraph_style.setMaxLines(1);
             ParagraphBuilderImpl builder(paragraph_style, fontCollection, get_unicode());
@@ -4271,7 +4271,7 @@ public:
     void draw(SkCanvas* canvas) override {
         canvas->drawColor(SK_ColorWHITE);
         auto fontCollection = sk_make_sp<FontCollection>();
-        fontCollection->setDefaultFontManager(ToolUtils::TestFontMgr(), std::vector<SkString>());
+        fontCollection->setDefaultFontManager(ToolUtils::TestFontMgr(), skia_private::TArray<SkString>());
         fontCollection->enableFontFallback();
         TextStyle text_style;
         text_style.setFontFamilies({SkString("")});
@@ -4368,7 +4368,7 @@ public:
     void draw(SkCanvas* canvas) override {
         canvas->drawColor(SK_ColorWHITE);
         auto fontCollection = sk_make_sp<FontCollection>();
-        fontCollection->setDefaultFontManager(ToolUtils::TestFontMgr(), std::vector<SkString>());
+        fontCollection->setDefaultFontManager(ToolUtils::TestFontMgr(), skia_private::TArray<SkString>());
         fontCollection->enableFontFallback();
         TextStyle text_style;
         text_style.setFontFamilies({SkString("Roboto"), SkString("Noto Color Emoji")});
