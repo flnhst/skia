@@ -1,5 +1,5 @@
 /*
- * Copyright 2019 Google Inc.
+ * Copyright 2019 Google LLC
  *
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
@@ -255,9 +255,7 @@ private:
     const GrRecordingContextPriv* operator&() const;
     GrRecordingContextPriv* operator&();
 
-    friend class GrRecordingContext; // to construct/copy this type.
-
-    using INHERITED = GrImageContextPriv;
+    friend class GrRecordingContext;  // to construct/copy this type.
 };
 
 inline GrRecordingContextPriv GrRecordingContext::priv() { return GrRecordingContextPriv(this); }

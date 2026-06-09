@@ -233,6 +233,9 @@ static GrGLRenderer get_renderer(const char* rendererString, const GrGLExtension
                 if (adrenoNumber == 620) {
                     return GrGLRenderer::kAdreno620;
                 }
+                if (adrenoNumber == 621) {
+                    return GrGLRenderer::kAdreno621;
+                }
                 if (adrenoNumber == 630) {
                     return GrGLRenderer::kAdreno630;
                 }
@@ -335,7 +338,7 @@ static GrGLRenderer get_renderer(const char* rendererString, const GrGLExtension
         }
     }
 
-    // The AMD string can have a somewhat arbitrary preamble (see skbug.com/7195)
+    // The AMD string can have a somewhat arbitrary preamble (see skbug.com/40038435)
     static constexpr char kRadeonStr[] = "Radeon ";
     if (const char* amdString = strstr(rendererString, kRadeonStr)) {
         amdString += strlen(kRadeonStr);
@@ -376,6 +379,11 @@ static GrGLRenderer get_renderer(const char* rendererString, const GrGLExtension
     if (strstr(rendererString, "llvmpipe")) {
         return GrGLRenderer::kGalliumLLVM;
     }
+
+    if (strstr(rendererString, "Android Emulator")) {
+        return GrGLRenderer::kAndroidEmulator;
+    }
+
     static const char kMaliGStr[] = "Mali-G";
     if (0 == strncmp(rendererString, kMaliGStr, std::size(kMaliGStr) - 1)) {
         return GrGLRenderer::kMaliG;

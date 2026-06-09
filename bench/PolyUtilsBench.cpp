@@ -1,5 +1,5 @@
 /*
- * Copyright 2018 Google Inc.
+ * Copyright 2018 Google LLC
  *
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
@@ -78,8 +78,7 @@ protected:
             case Type::kOffsetSimple:
                 if (SkIsSimplePolygon(poly.begin(), poly.size())) {
                     SkTDArray<SkPoint> result;
-                    SkRect bounds;
-                    bounds.setBounds(poly.begin(), poly.size());
+                    const auto bounds = SkRect::BoundsOrEmpty(poly);
                     for (int i = 0; i < loops; i++) {
                         (void)SkOffsetSimplePolygon(poly.begin(), poly.size(), bounds, 10,
                                                     &result);

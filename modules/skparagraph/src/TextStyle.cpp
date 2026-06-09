@@ -1,4 +1,4 @@
-// Copyright 2019 Google LLC.
+// Copyright 2019 Google LLC
 #include "include/core/SkColor.h"
 #include "include/core/SkFontStyle.h"
 #include "modules/skparagraph/include/TextStyle.h"
@@ -182,9 +182,9 @@ void TextStyle::setColor(SkColor color) { fColor = color; }
 
 void TextStyle::getFontMetrics(SkFontMetrics* metrics) const {
     SkFont font(fTypeface, fFontSize);
-    font.setEdging(getEdging());
-    font.setSubpixel(getSubpixel());
-    font.setHinting(getFontHinting());
+    font.setEdging(fEdging);
+    font.setSubpixel(fSubpixel);
+    font.setHinting(fHinting);
     font.getMetrics(metrics);
     if (fHeightOverride) {
         auto multiplier = fHeight * fFontSize;

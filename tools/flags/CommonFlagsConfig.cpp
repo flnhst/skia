@@ -20,10 +20,14 @@
 
 using namespace skia_private;
 
+#if defined(SK_GANESH)
 #if defined(SK_BUILD_FOR_ANDROID) || defined(SK_BUILD_FOR_IOS)
 #define DEFAULT_GPU_CONFIG "gles"
 #else
 #define DEFAULT_GPU_CONFIG "gl"
+#endif
+#else
+#define DEFAULT_GPU_CONFIG ""
 #endif
 
 static const char defaultConfigs[] = "8888 " DEFAULT_GPU_CONFIG
@@ -146,6 +150,8 @@ static const struct {
     { "grdawn_mtltestprecompile", "graphite", "api=dawn_mtl,testPrecompileGraphite=true" },
     { "grdawn_vktestprecompile",  "graphite", "api=dawn_vk, testPrecompileGraphite=true" },
 #endif
+    { "grdawn_mtltesttracking", "graphite", "api=dawn_mtl,testPipelineTracking=true" },
+    { "grdawn_vktesttracking",  "graphite", "api=dawn_vk, testPipelineTracking=true" },
 #endif
 #ifdef SK_METAL
     { "grmtl",                    "graphite", "api=metal" },
@@ -157,12 +163,15 @@ static const struct {
     { "grmtltestprecompile",      "graphite", "api=metal,testPrecompileGraphite=true" },
     { "grmtltestprecompilef16",   "graphite", "api=metal,testPrecompileGraphite=true,color=f16" },
 #endif
+    { "grmtltesttracking",        "graphite", "api=metal,testPipelineTracking=true" },
 #endif
 #ifdef SK_VULKAN
     { "grvk",                     "graphite", "api=vulkan" },
 #if defined(SK_ENABLE_PRECOMPILE)
     { "grvktestprecompile",       "graphite", "api=vulkan,testPrecompileGraphite=true" },
 #endif
+    { "grvktesttracking",         "graphite", "api=vulkan,testPipelineTracking=true" },
+    { "grvktestpersistentstorage","graphite", "api=vulkan,testPersistentStorage=true" },
 #endif
 #endif
 
@@ -228,12 +237,31 @@ static const char configExtendedHelp[] =
         "\ttestPersistentCache\ttype: int\tdefault: 0.\n"
         "\t    1: Run using a pre-warmed binary GrContextOptions::fPersistentCache.\n"
         "\t    2: Run using a pre-warmed GLSL GrContextOptions::fPersistentCache.\n"
+        "\ttestPersistentStorage\ttype: bool\tdefault: false.\n"
+        "\t    Store Pipeline data in ContextOptions::fPersistentPipelineStorage.\n"
+        "\ttestPrecompileGraphite\ttype: bool\tdefault: false.\n"
+        "\t    Use the precompilation testing Sink.\n"
+        "\ttestPipelineTracking\ttype: bool\tdefault: false.\n"
+        "\t    Use the pipeline tracking testing Sink.\n"
         "\tsurf\ttype: string\tdefault: default.\n"
         "\t    Controls the type of backing store for SkSurfaces.\n"
         "\t    Options:\n"
         "\t\tdefault\t\t\tA renderable texture created in Skia's resource cache.\n"
         "\t\tbetex\t\t\tA wrapped backend texture.\n"
         "\t\tbert\t\t\tA wrapped backend render target\n"
+        "\n"
+        "Via configs:\n"
+        "\tA config can be prefixed with one or more 'vias' separated by hyphens.\n"
+        "\tThese wrap the sink in another sink that modifies the draw. (Supported by dm)\n"
+        "\tExample: 'serialize-8888' will serialize and then deserialize the drawing.\n"
+        "\tCommon vias:\n"
+        "\t\tserialize\tSerialize and then deserialize the canvas.\n"
+        "\t\tpic      \tRecord to an SkPicture and then play back.\n"
+        "\t\trtblend  \tUse a runtime blend mode.\n"
+        "\t\tmatrix   \tApply a 2x2 matrix (set with --matrix).\n"
+        "\t\tupright  \tApply a matrix and then upright it.\n"
+        "\tColor space vias:\n"
+        "\t\tsrgb, linear, p3, rec2020, narrow\n"
         "\n"
         "Predefined configs:\n\n"
         // Help text for pre-defined configs is auto-generated from gPredefinedConfigs
@@ -249,6 +277,14 @@ static const char* config_extended_help_fn() {
 }
 
 DEFINE_extended_string(config, defaultConfigs, config_help_fn(), config_extended_help_fn());
+
+DEFINE_int(gpuThreads,
+           2,
+           "Create this many extra threads to assist with GPU work, "
+           "including software path rendering. Defaults to two.");
+
+DEFINE_int(internalSamples, -1,
+           "Number of samples for internal draws that use MSAA, or default value if negative.");
 
 SkCommandLineConfig::SkCommandLineConfig(const SkString& tag,
                                          const SkString& backend,
@@ -307,6 +343,8 @@ static bool parse_option_bool(const SkString& value, bool* outBool) {
     }
     return false;
 }
+
+#if defined(SK_GANESH)
 static bool parse_option_gpu_api(const SkString&                      value,
                                  SkCommandLineConfigGpu::ContextType* outContextType,
                                  bool*                                outFakeGLESVersion2) {
@@ -377,6 +415,24 @@ static bool parse_option_gpu_api(const SkString&                      value,
     return false;
 }
 
+static bool parse_option_gpu_surf_type(const SkString&                   value,
+                                       SkCommandLineConfigGpu::SurfType* surfType) {
+    if (value.equals("default")) {
+        *surfType = SkCommandLineConfigGpu::SurfType::kDefault;
+        return true;
+    }
+    if (value.equals("betex")) {
+        *surfType = SkCommandLineConfigGpu::SurfType::kBackendTexture;
+        return true;
+    }
+    if (value.equals("bert")) {
+        *surfType = SkCommandLineConfigGpu::SurfType::kBackendRenderTarget;
+        return true;
+    }
+    return false;
+}
+#endif  // SK_GANESH
+
 static bool parse_option_gpu_color(const SkString& value,
                                    SkColorType*    outColorType,
                                    SkAlphaType*    alphaType) {
@@ -409,23 +465,6 @@ static bool parse_option_gpu_color(const SkString& value,
         return false;
     }
     return true;
-}
-
-static bool parse_option_gpu_surf_type(const SkString&                   value,
-                                       SkCommandLineConfigGpu::SurfType* surfType) {
-    if (value.equals("default")) {
-        *surfType = SkCommandLineConfigGpu::SurfType::kDefault;
-        return true;
-    }
-    if (value.equals("betex")) {
-        *surfType = SkCommandLineConfigGpu::SurfType::kBackendTexture;
-        return true;
-    }
-    if (value.equals("bert")) {
-        *surfType = SkCommandLineConfigGpu::SurfType::kBackendRenderTarget;
-        return true;
-    }
-    return false;
 }
 
 // Extended options take form --config item[key1=value1,key2=value2,...]
@@ -466,6 +505,7 @@ public:
         return parse_option_gpu_color(*optionValue, outColorType, alphaType);
     }
 
+#if defined(SK_GANESH)
     bool get_option_gpu_api(const char*                          optionKey,
                             SkCommandLineConfigGpu::ContextType* outContextType,
                             bool*                                outFakeGLESVersion2,
@@ -476,6 +516,17 @@ public:
         }
         return parse_option_gpu_api(*optionValue, outContextType, outFakeGLESVersion2);
     }
+
+    bool get_option_gpu_surf_type(const char*                       optionKey,
+                                  SkCommandLineConfigGpu::SurfType* outSurfType,
+                                  bool                              optional = true) const {
+        SkString* optionValue = fOptionsMap.find(SkString(optionKey));
+        if (optionValue == nullptr) {
+            return optional;
+        }
+        return parse_option_gpu_surf_type(*optionValue, outSurfType);
+    }
+#endif
 
 #if defined(SK_GRAPHITE)
     bool get_option_graphite_api(const char*                               optionKey,
@@ -533,16 +584,6 @@ public:
     }
 #endif
 
-    bool get_option_gpu_surf_type(const char*                       optionKey,
-                                  SkCommandLineConfigGpu::SurfType* outSurfType,
-                                  bool                              optional = true) const {
-        SkString* optionValue = fOptionsMap.find(SkString(optionKey));
-        if (optionValue == nullptr) {
-            return optional;
-        }
-        return parse_option_gpu_surf_type(*optionValue, outSurfType);
-    }
-
     bool get_option_int(const char* optionKey, int* outInt, bool optional = true) const {
         SkString* optionValue = fOptionsMap.find(SkString(optionKey));
         if (optionValue == nullptr) {
@@ -563,6 +604,7 @@ private:
     THashMap<SkString, SkString> fOptionsMap;
 };
 
+#if defined(SK_GANESH)
 SkCommandLineConfigGpu::SkCommandLineConfigGpu(const SkString&         tag,
                                                const TArray<SkString>& viaParts,
                                                ContextType             contextType,
@@ -679,6 +721,7 @@ SkCommandLineConfigGpu* parse_command_line_config_gpu(const SkString&         ta
                                       reducedShaders,
                                       surfType);
 }
+#endif
 
 #if defined(SK_GRAPHITE)
 
@@ -690,7 +733,9 @@ SkCommandLineConfigGraphite* parse_command_line_config_graphite(const SkString& 
     ContextType contextType            = skgpu::ContextType::kMetal;
     SkColorType colorType              = kRGBA_8888_SkColorType;
     SkAlphaType alphaType              = kPremul_SkAlphaType;
+    bool        testPersistentStorage  = false;
     bool        testPrecompileGraphite = false;
+    bool        testPipelineTracking   = false;
 
     bool parseSucceeded = false;
     ExtendedOptions extendedOptions(options, &parseSucceeded);
@@ -698,10 +743,12 @@ SkCommandLineConfigGraphite* parse_command_line_config_graphite(const SkString& 
         return nullptr;
     }
 
-    bool validOptions = extendedOptions.get_option_graphite_api("api", &contextType) &&
-                        extendedOptions.get_option_gpu_color("color", &colorType, &alphaType) &&
-                        extendedOptions.get_option_bool("testPrecompileGraphite",
-                                                        &testPrecompileGraphite);
+    bool validOptions =
+        extendedOptions.get_option_graphite_api("api", &contextType) &&
+        extendedOptions.get_option_gpu_color("color", &colorType, &alphaType) &&
+        extendedOptions.get_option_bool("testPersistentStorage", &testPersistentStorage) &&
+        extendedOptions.get_option_bool("testPrecompileGraphite", &testPrecompileGraphite) &&
+        extendedOptions.get_option_bool("testPipelineTracking", &testPipelineTracking);
     if (!validOptions) {
         return nullptr;
     }
@@ -711,7 +758,9 @@ SkCommandLineConfigGraphite* parse_command_line_config_graphite(const SkString& 
                                            contextType,
                                            colorType,
                                            alphaType,
-                                           testPrecompileGraphite);
+                                           testPersistentStorage,
+                                           testPrecompileGraphite,
+                                           testPipelineTracking);
 }
 
 #endif
@@ -786,9 +835,11 @@ void ParseConfigs(const CommandLineFlags::StringArray& configs,
             }
         }
         SkCommandLineConfig* parsedConfig = nullptr;
+#if defined(SK_GANESH)
         if (extendedBackend.equals("gpu")) {
             parsedConfig = parse_command_line_config_gpu(tag, vias, extendedOptions);
         }
+#endif
 #if defined(SK_GRAPHITE)
         if (extendedBackend.equals("graphite")) {
             parsedConfig = parse_command_line_config_graphite(tag, vias, extendedOptions);

@@ -1,5 +1,5 @@
 /*
- * Copyright 2021 Google LLC.
+ * Copyright 2021 Google LLC
  *
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
@@ -48,7 +48,7 @@ private:
     void onAddToKey(const GrShaderCaps&, skgpu::KeyBuilder* b) const override;
 
     bool onIsEqual(const GrFragmentProcessor& that) const override {
-        auto fp = that.cast<GrModulateAtlasCoverageEffect>();
+        auto fp = that.cast<GrModulateAtlasCoverageEffect>(); // NOLINT
         return fFlags == fp.fFlags && fBounds == fp.fBounds;
     }
     std::unique_ptr<ProgramImpl> onMakeProgramImpl() const override;

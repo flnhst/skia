@@ -1,5 +1,5 @@
 /*
- * Copyright 2018 Google Inc.
+ * Copyright 2018 Google LLC
  *
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
@@ -12,11 +12,11 @@
 #include "include/core/SkRefCnt.h"
 #include "include/core/SkString.h"
 #include "include/gpu/ganesh/GrRecordingContext.h"
-#include "include/private/SkColorData.h"
 #include "include/private/base/SkAssert.h"
 #include "include/private/base/SkDebug.h"
 #include "include/private/gpu/ganesh/GrTypesPriv.h"
 #include "src/base/SkArenaAlloc.h"
+#include "src/core/SkColorData.h"
 #include "src/core/SkTraceEvent.h"
 #include "src/gpu/ganesh/GrAppliedClip.h"
 #include "src/gpu/ganesh/GrBuffer.h"

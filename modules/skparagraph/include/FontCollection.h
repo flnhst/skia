@@ -1,4 +1,4 @@
-// Copyright 2019 Google LLC.
+// Copyright 2019 Google LLC
 #ifndef FontCollection_DEFINED
 #define FontCollection_DEFINED
 
@@ -12,7 +12,6 @@
 #include "modules/skparagraph/include/ParagraphCache.h"
 #include "modules/skparagraph/include/TextStyle.h"
 #include "src/core/SkTHash.h"
-
 #include "modules/skparagraph/include/ExportDefines.h"
 
 namespace skia {
@@ -23,7 +22,7 @@ class Paragraph;
 class SKPARAGRAPH_API FontCollection : public SkRefCnt {
 public:
     FontCollection();
-    virtual ~FontCollection();
+    ~FontCollection() override;
 
     static sk_sp<FontCollection> Make();
 
@@ -41,7 +40,9 @@ public:
     skia_private::TArray<sk_sp<SkTypeface>> findTypefaces(const skia_private::TArray<SkString>& familyNames, SkFontStyle fontStyle);
     skia_private::TArray<sk_sp<SkTypeface>> findTypefaces(const skia_private::TArray<SkString>& familyNames, SkFontStyle fontStyle, const std::optional<FontArguments>& fontArgs);
 
-    sk_sp<SkTypeface> defaultFallback(SkUnichar unicode, SkFontStyle fontStyle, const SkString& locale);
+    sk_sp<SkTypeface> defaultFallback(SkUnichar unicode, const std::vector<SkString>& families,
+                                      SkFontStyle fontStyle, const SkString& locale,
+                                      const std::optional<FontArguments>& fontArgs);
     sk_sp<SkTypeface> defaultEmojiFallback(SkUnichar emojiStart, SkFontStyle fontStyle, const SkString& locale);
     sk_sp<SkTypeface> defaultFallback();
 
@@ -81,6 +82,12 @@ private:
         };
     };
 
+    sk_sp<SkTypeface> cloneTypeface(const sk_sp<SkTypeface>& typeface, const FontArguments& args);
+
+    struct FaceCache;
+    std::unique_ptr<FaceCache> fFaceCache;
+    struct VariationCache;
+    std::unique_ptr<VariationCache> fVariationCache;
     bool fEnableFontFallback;
     skia_private::THashMap<FamilyKey, skia_private::TArray<sk_sp<SkTypeface>>, FamilyKey::Hasher> fTypefaces;
     sk_sp<SkFontMgr> fDefaultFontManager;

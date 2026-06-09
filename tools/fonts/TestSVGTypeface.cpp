@@ -136,16 +136,17 @@ void TestSVGTypeface::onFilterRec(SkScalerContextRec* rec) const {
     rec->setHinting(SkFontHinting::kNone);
 }
 
-void TestSVGTypeface::getGlyphToUnicodeMap(SkUnichar* glyphToUnicode) const {
+void TestSVGTypeface::getGlyphToUnicodeMap(SkSpan<SkUnichar> glyphToUnicode) const {
     SkDEBUGCODE(unsigned glyphCount = this->countGlyphs());
     fCMap.foreach ([=](const SkUnichar& c, const SkGlyphID& g) {
         SkASSERT(g < glyphCount);
+        SkASSERT(g < glyphToUnicode.size());
         glyphToUnicode[g] = c;
     });
 }
 
 std::unique_ptr<SkAdvancedTypefaceMetrics> TestSVGTypeface::onGetAdvancedMetrics() const {
-    std::unique_ptr<SkAdvancedTypefaceMetrics> info(new SkAdvancedTypefaceMetrics);
+    auto info = std::make_unique<SkAdvancedTypefaceMetrics>();
     info->fPostScriptName = fName;
     return info;
 }
@@ -156,8 +157,9 @@ void TestSVGTypeface::onGetFontDescriptor(SkFontDescriptor* desc, bool* serializ
     *serialize = true;
 }
 
-void TestSVGTypeface::onCharsToGlyphs(const SkUnichar uni[], int count, SkGlyphID glyphs[]) const {
-    for (int i = 0; i < count; i++) {
+void TestSVGTypeface::onCharsToGlyphs(SkSpan<const SkUnichar> uni, SkSpan<SkGlyphID> glyphs) const {
+    SkASSERT(uni.size() == glyphs.size());
+    for (size_t i = 0; i < uni.size(); i++) {
         SkGlyphID* g = fCMap.find(uni[i]);
         glyphs[i]    = g ? *g : 0;
     }
@@ -175,11 +177,12 @@ SkTypeface::LocalizedStrings* TestSVGTypeface::onCreateFamilyNameIterator() cons
 
 class SkTestSVGScalerContext : public SkScalerContext {
 public:
-    SkTestSVGScalerContext(sk_sp<TestSVGTypeface>        face,
+    SkTestSVGScalerContext(TestSVGTypeface& face,
                            const SkScalerContextEffects& effects,
-                           const SkDescriptor*           desc)
-            : SkScalerContext(std::move(face), effects, desc) {
-        fRec.getSingleMatrix(&fMatrix);
+                           const SkDescriptor* desc)
+        : SkScalerContext(face, effects, desc)
+        , fMatrix(fRec.getSingleMatrix())
+    {
         SkScalar upem = this->getTestSVGTypeface()->fUpem;
         fMatrix.preScale(1.f / upem, 1.f / upem);
     }
@@ -191,7 +194,7 @@ protected:
 
     SkVector computeAdvance(SkGlyphID glyphID) {
         auto advance = this->getTestSVGTypeface()->getAdvance(glyphID);
-        return fMatrix.mapXY(advance.fX, advance.fY);
+        return fMatrix.mapPoint(advance);
     }
 
     GlyphMetrics generateMetrics(const SkGlyph& glyph, SkArenaAlloc*) override {
@@ -241,11 +244,10 @@ protected:
         glyphData.render(&canvas);
     }
 
-    bool generatePath(const SkGlyph& glyph, SkPath* path, bool* modified) override {
+    std::optional<SkScalerContext::GeneratedPath> generatePath(const SkGlyph& glyph) override {
         // Should never get here since generateMetrics always sets the path to not exist.
         SK_ABORT("Path requested, but it should have been indicated that there isn't one.");
-        path->reset();
-        return false;
+        return {};
     }
 
     struct SVGGlyphDrawable : public SkDrawable {
@@ -288,8 +290,7 @@ private:
 std::unique_ptr<SkScalerContext> TestSVGTypeface::onCreateScalerContext(
     const SkScalerContextEffects& e, const SkDescriptor* desc) const
 {
-    return std::make_unique<SkTestSVGScalerContext>(
-            sk_ref_sp(const_cast<TestSVGTypeface*>(this)), e, desc);
+    return std::make_unique<SkTestSVGScalerContext>(*const_cast<TestSVGTypeface*>(this), e, desc);
 }
 
 class DefaultTypeface : public TestSVGTypeface {
@@ -801,7 +802,7 @@ void TestSVGTypeface::exportTtxCbdt(SkWStream* out, SkSpan<unsigned> strikeSizes
                 SkGlyphID gid = i;
                 SkScalar  advance;
                 SkRect    bounds;
-                font.getWidthsBounds(&gid, 1, &advance, &bounds, nullptr);
+                font.getWidthsBounds({&gid, 1}, {&advance, 1}, {&bounds, 1}, nullptr);
                 SkIRect ibounds = bounds.roundOut();
                 if (!SkTFitsIn<int8_t>(ibounds.fLeft) || !SkTFitsIn<int8_t>(ibounds.fTop) ||
                     !SkTFitsIn<uint8_t>(ibounds.width()) || !SkTFitsIn<uint8_t>(ibounds.height()) ||
@@ -840,7 +841,7 @@ void TestSVGTypeface::exportTtxCbdt(SkWStream* out, SkSpan<unsigned> strikeSizes
             SkGlyphID gid = i;
             SkScalar  advance;
             SkRect    bounds;
-            font.getWidthsBounds(&gid, 1, &advance, &bounds, nullptr);
+            font.getWidthsBounds({&gid, 1}, {&advance, 1}, {&bounds, 1}, nullptr);
             SkIRect ibounds = bounds.roundOut();
             if (ibounds.isEmpty()) {
                 continue;
@@ -968,8 +969,7 @@ void TestSVGTypeface::exportTtxCbdt(SkWStream* out, SkSpan<unsigned> strikeSizes
                 "lastGlyphIndex=\"1\">\n");
         for (int i = 0; i < fGlyphCount; ++i) {
             SkGlyphID gid = i;
-            SkRect    bounds;
-            font.getBounds(&gid, 1, &bounds, nullptr);
+            SkRect    bounds = font.getBounds(gid, nullptr);
             if (bounds.isEmpty()) {
                 continue;
             }
@@ -982,6 +982,235 @@ void TestSVGTypeface::exportTtxCbdt(SkWStream* out, SkSpan<unsigned> strikeSizes
     }
     out->writeText("  </CBLC>\n");
 
+    out->writeText("</ttFont>\n");
+}
+
+void TestSVGTypeface::exportTtxCbdtAlpha(SkWStream* out, SkSpan<unsigned> strikeSizes,
+                                         int imageFormat) const {
+    // imageFormat: 1=byte-aligned+Small, 2=bit-aligned+Small,
+    //              6=byte-aligned+Big,   7=bit-aligned+Big
+    bool useBigMetrics = (imageFormat == 6 || imageFormat == 7);
+    SkPaint paint;
+    SkFont  font;
+    font.setTypeface(sk_ref_sp(const_cast<TestSVGTypeface*>(this)));
+    SkString name;
+    this->getFamilyName(&name);
+
+    STArray<8, int> goodStrikeSizes;
+    for (size_t strikeIndex = 0; strikeIndex < strikeSizes.size(); ++strikeIndex) {
+        font.setSize(strikeSizes[strikeIndex]);
+        SkFontMetrics fm;
+        font.getMetrics(&fm);
+        if (!SkTFitsIn<int8_t>((int)(-fm.fTop)) || !SkTFitsIn<int8_t>((int)(-fm.fBottom)) ||
+            !SkTFitsIn<uint8_t>((int)(fm.fXMax - fm.fXMin))) {
+            SkDebugf("Metrics too big cbdt font size %f for %s.\n", font.getSize(), name.c_str());
+            continue;
+        }
+        auto exceedsCbdtLimits = [&]() {
+            for (int i = 0; i < fGlyphCount; ++i) {
+                SkGlyphID gid = i;
+                SkScalar  advance;
+                SkRect    bounds;
+                font.getWidthsBounds({&gid, 1}, {&advance, 1}, {&bounds, 1}, nullptr);
+                SkIRect ibounds = bounds.roundOut();
+                if (!SkTFitsIn<int8_t>(ibounds.fLeft) || !SkTFitsIn<int8_t>(ibounds.fTop) ||
+                    !SkTFitsIn<uint8_t>(ibounds.width()) || !SkTFitsIn<uint8_t>(ibounds.height()) ||
+                    !SkTFitsIn<uint8_t>((int)advance)) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        if (exceedsCbdtLimits()) {
+            SkDebugf("Glyphs too big cbdt font size %f for %s.\n", font.getSize(), name.c_str());
+            continue;
+        }
+
+        goodStrikeSizes.emplace_back(strikeSizes[strikeIndex]);
+    }
+
+    if (goodStrikeSizes.empty()) {
+        SkDebugf("No strike size fit for cbdt alpha font for %s.\n", name.c_str());
+        return;
+    }
+
+    out->writeText("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+    out->writeText("<ttFont sfntVersion=\"\\x00\\x01\\x00\\x00\" ttLibVersion=\"3.19\">\n");
+    this->exportTtxCommon(out, "CBDT");
+
+    out->writeText("  <CBDT>\n");
+    out->writeText("    <header version=\"2.0\"/>\n");
+    for (int strikeIndex = 0; strikeIndex < goodStrikeSizes.size(); ++strikeIndex) {
+        font.setSize(goodStrikeSizes[strikeIndex]);
+        out->writeText("    <strikedata index=\"");
+        out->writeDecAsText(strikeIndex);
+        out->writeText("\">\n");
+        for (int i = 0; i < fGlyphCount; ++i) {
+            SkGlyphID gid = i;
+            SkScalar  advance;
+            SkRect    bounds;
+            font.getWidthsBounds({&gid, 1}, {&advance, 1}, {&bounds, 1}, nullptr);
+            SkIRect ibounds = bounds.roundOut();
+            if (ibounds.isEmpty()) {
+                continue;
+            }
+
+            int bmpW = ibounds.width();
+            int bmpH = ibounds.height();
+
+            SkImageInfo image_info = SkImageInfo::MakeA8(bmpW, bmpH);
+            SkBitmap bitmap;
+            bitmap.allocPixels(image_info);
+            bitmap.eraseColor(SK_ColorTRANSPARENT);
+            SkCanvas canvas(bitmap);
+            canvas.drawSimpleText(&gid, sizeof(gid), SkTextEncoding::kGlyphID,
+                                   -bounds.fLeft, -bounds.fTop, font, paint);
+
+            out->writeText("      <cbdt_bitmap_format_");
+            out->writeDecAsText(imageFormat);
+            out->writeText(" name=\"glyf");
+            out->writeHexAsText(i, 4);
+            out->writeText("\">\n");
+            if (useBigMetrics) {
+                out->writeText("        <BigGlyphMetrics>\n");
+                out->writeText("          <height value=\"");
+                out->writeDecAsText(ibounds.height());
+                out->writeText("\"/>\n");
+                out->writeText("          <width value=\"");
+                out->writeDecAsText(ibounds.width());
+                out->writeText("\"/>\n");
+                out->writeText("          <horiBearingX value=\"");
+                out->writeDecAsText(ibounds.fLeft);
+                out->writeText("\"/>\n");
+                out->writeText("          <horiBearingY value=\"");
+                out->writeDecAsText(-ibounds.fTop);
+                out->writeText("\"/>\n");
+                out->writeText("          <horiAdvance value=\"");
+                out->writeDecAsText((int)advance);
+                out->writeText("\"/>\n");
+                out->writeText("          <vertBearingX value=\"0\"/>\n");
+                out->writeText("          <vertBearingY value=\"0\"/>\n");
+                out->writeText("          <vertAdvance value=\"");
+                out->writeDecAsText(ibounds.height());
+                out->writeText("\"/>\n");
+                out->writeText("        </BigGlyphMetrics>\n");
+            } else {
+                out->writeText("        <SmallGlyphMetrics>\n");
+                out->writeText("          <height value=\"");
+                out->writeDecAsText(ibounds.height());
+                out->writeText("\"/>\n");
+                out->writeText("          <width value=\"");
+                out->writeDecAsText(ibounds.width());
+                out->writeText("\"/>\n");
+                out->writeText("          <BearingX value=\"");
+                out->writeDecAsText(ibounds.fLeft);
+                out->writeText("\"/>\n");
+                out->writeText("          <BearingY value=\"");
+                out->writeDecAsText(-ibounds.fTop);
+                out->writeText("\"/>\n");
+                out->writeText("          <Advance value=\"");
+                out->writeDecAsText((int)advance);
+                out->writeText("\"/>\n");
+                out->writeText("        </SmallGlyphMetrics>\n");
+            }
+            out->writeText("        <rawimagedata>");
+            for (int y = 0; y < bmpH; ++y) {
+                const uint8_t* row = bitmap.getAddr8(0, y);
+                for (int x = 0; x < bmpW; ++x) {
+                    int idx = y * bmpW + x;
+                    if ((idx % 0x10) == 0x0) {
+                        out->writeText("\n          ");
+                    } else if (((idx - 1) % 0x4) == 0x3) {
+                        out->writeText(" ");
+                    }
+                    out->writeHexAsText(row[x], 2);
+                }
+            }
+            out->writeText("\n        </rawimagedata>\n");
+            out->writeText("      </cbdt_bitmap_format_");
+            out->writeDecAsText(imageFormat);
+            out->writeText(">\n");
+        }
+        out->writeText("    </strikedata>\n");
+    }
+    out->writeText("  </CBDT>\n");
+
+    SkFontMetrics fm;
+    out->writeText("  <CBLC>\n");
+    out->writeText("    <header version=\"2.0\"/>\n");
+    for (int strikeIndex = 0; strikeIndex < goodStrikeSizes.size(); ++strikeIndex) {
+        font.setSize(goodStrikeSizes[strikeIndex]);
+        font.getMetrics(&fm);
+        out->writeText("    <strike index=\"");
+        out->writeDecAsText(strikeIndex);
+        out->writeText("\">\n");
+        out->writeText("      <bitmapSizeTable>\n");
+        out->writeText("        <sbitLineMetrics direction=\"hori\">\n");
+        out->writeText("          <ascender value=\"");
+        out->writeDecAsText((int)(-fm.fTop));
+        out->writeText("\"/>\n          <descender value=\"");
+        out->writeDecAsText((int)(-fm.fBottom));
+        out->writeText("\"/>\n          <widthMax value=\"");
+        out->writeDecAsText((int)(fm.fXMax - fm.fXMin));
+        out->writeText("\"/>\n");
+        out->writeText("          <caretSlopeNumerator value=\"0\"/>\n");
+        out->writeText("          <caretSlopeDenominator value=\"0\"/>\n");
+        out->writeText("          <caretOffset value=\"0\"/>\n");
+        out->writeText("          <minOriginSB value=\"0\"/>\n");
+        out->writeText("          <minAdvanceSB value=\"0\"/>\n");
+        out->writeText("          <maxBeforeBL value=\"0\"/>\n");
+        out->writeText("          <minAfterBL value=\"0\"/>\n");
+        out->writeText("          <pad1 value=\"0\"/>\n");
+        out->writeText("          <pad2 value=\"0\"/>\n");
+        out->writeText("        </sbitLineMetrics>\n");
+        out->writeText("        <sbitLineMetrics direction=\"vert\">\n");
+        out->writeText("          <ascender value=\"");
+        out->writeDecAsText((int)(-fm.fTop));
+        out->writeText("\"/>\n          <descender value=\"");
+        out->writeDecAsText((int)(-fm.fBottom));
+        out->writeText("\"/>\n          <widthMax value=\"");
+        out->writeDecAsText((int)(fm.fXMax - fm.fXMin));
+        out->writeText("\"/>\n");
+        out->writeText("          <caretSlopeNumerator value=\"0\"/>\n");
+        out->writeText("          <caretSlopeDenominator value=\"0\"/>\n");
+        out->writeText("          <caretOffset value=\"0\"/>\n");
+        out->writeText("          <minOriginSB value=\"0\"/>\n");
+        out->writeText("          <minAdvanceSB value=\"0\"/>\n");
+        out->writeText("          <maxBeforeBL value=\"0\"/>\n");
+        out->writeText("          <minAfterBL value=\"0\"/>\n");
+        out->writeText("          <pad1 value=\"0\"/>\n");
+        out->writeText("          <pad2 value=\"0\"/>\n");
+        out->writeText("        </sbitLineMetrics>\n");
+        out->writeText("        <colorRef value=\"0\"/>\n");
+        out->writeText("        <startGlyphIndex value=\"1\"/>\n");
+        out->writeText("        <endGlyphIndex value=\"1\"/>\n");
+        out->writeText("        <ppemX value=\"");
+        out->writeDecAsText(goodStrikeSizes[strikeIndex]);
+        out->writeText("\"/>\n        <ppemY value=\"");
+        out->writeDecAsText(goodStrikeSizes[strikeIndex]);
+        out->writeText("\"/>\n");
+        out->writeText("        <bitDepth value=\"8\"/>\n");
+        out->writeText("        <flags value=\"1\"/>\n");
+        out->writeText("      </bitmapSizeTable>\n");
+        out->writeText(
+                "      <eblc_index_sub_table_1 imageFormat=\"");
+        out->writeDecAsText(imageFormat);
+        out->writeText("\" firstGlyphIndex=\"1\" "
+                "lastGlyphIndex=\"1\">\n");
+        for (int i = 0; i < fGlyphCount; ++i) {
+            SkGlyphID gid = i;
+            SkRect    bounds = font.getBounds(gid, nullptr);
+            if (bounds.isEmpty()) {
+                continue;
+            }
+            out->writeText("        <glyphLoc name=\"glyf");
+            out->writeHexAsText(i, 4);
+            out->writeText("\"/>\n");
+        }
+        out->writeText("      </eblc_index_sub_table_1>\n");
+        out->writeText("    </strike>\n");
+    }
+    out->writeText("  </CBLC>\n");
     out->writeText("</ttFont>\n");
 }
 
@@ -1076,7 +1305,7 @@ void TestSVGTypeface::exportTtxSbix(SkWStream* out, SkSpan<unsigned> strikeSizes
             SkGlyphID gid = i;
             SkScalar  advance;
             SkRect    bounds;
-            font.getWidthsBounds(&gid, 1, &advance, &bounds, nullptr);
+            font.getWidthsBounds({&gid, 1}, {&advance, 1}, {&bounds, 1}, nullptr);
             SkIRect ibounds = bounds.roundOut();
             if (ibounds.isEmpty()) {
                 continue;
@@ -1199,38 +1428,36 @@ void convertCubicToQuads(const SkPoint p[4], SkScalar tolScale, TArray<SkPoint, 
     }
 }
 
-void path_to_quads(const SkPath& path, SkPath* quadPath) {
-    quadPath->reset();
+SkPath path_to_quads(const SkPath& path) {
+    SkPathBuilder quadPath;
     TArray<SkPoint, true> qPts;
     SkAutoConicToQuads      converter;
     const SkPoint*          quadPts;
     for (auto [verb, pts, w] : SkPathPriv::Iterate(path)) {
         switch (verb) {
-            case SkPathVerb::kMove: quadPath->moveTo(pts[0].fX, pts[0].fY); break;
-            case SkPathVerb::kLine: quadPath->lineTo(pts[1].fX, pts[1].fY); break;
+            case SkPathVerb::kMove: quadPath.moveTo(pts[0]); break;
+            case SkPathVerb::kLine: quadPath.lineTo(pts[1]); break;
             case SkPathVerb::kQuad:
-                quadPath->quadTo(pts[1].fX, pts[1].fY, pts[2].fX, pts[2].fY);
+                quadPath.quadTo(pts[1].fX, pts[1].fY, pts[2].fX, pts[2].fY);
                 break;
             case SkPathVerb::kCubic:
                 qPts.clear();
                 convertCubicToQuads(pts, SK_Scalar1, &qPts);
                 for (int i = 0; i < qPts.size(); i += 3) {
-                    quadPath->quadTo(
+                    quadPath.quadTo(
                             qPts[i + 1].fX, qPts[i + 1].fY, qPts[i + 2].fX, qPts[i + 2].fY);
                 }
                 break;
             case SkPathVerb::kConic:
                 quadPts = converter.computeQuads(pts, *w, SK_Scalar1);
                 for (int i = 0; i < converter.countQuads(); ++i) {
-                    quadPath->quadTo(quadPts[i * 2 + 1].fX,
-                                     quadPts[i * 2 + 1].fY,
-                                     quadPts[i * 2 + 2].fX,
-                                     quadPts[i * 2 + 2].fY);
+                    quadPath.quadTo(quadPts[i * 2 + 1], quadPts[i * 2 + 2]);
                 }
                 break;
-            case SkPathVerb::kClose: quadPath->close(); break;
+            case SkPathVerb::kClose: quadPath.close(); break;
         }
     }
+    return quadPath.detach();
 }
 
 class SkCOLRCanvas : public SkNoDrawCanvas {
@@ -1261,8 +1488,7 @@ public:
     }
     SkIRect writePath(const SkPath& path, bool layer) {
         // Convert to quads.
-        SkPath quads;
-        path_to_quads(path, &quads);
+        SkPath quads = path_to_quads(path);
 
         SkRect  bounds  = quads.computeTightBounds();
         SkIRect ibounds = bounds.roundOut();
@@ -1329,15 +1555,11 @@ public:
     }
 
     void onDrawRect(const SkRect& rect, const SkPaint& paint) override {
-        SkPath path;
-        path.addRect(rect);
-        this->drawPath(path, paint);
+        this->drawPath(SkPath::Rect(rect), paint);
     }
 
     void onDrawOval(const SkRect& oval, const SkPaint& paint) override {
-        SkPath path;
-        path.addOval(oval);
-        this->drawPath(path, paint);
+        this->drawPath(SkPath::Oval(oval), paint);
     }
 
     void onDrawArc(const SkRect&  oval,
@@ -1345,17 +1567,14 @@ public:
                    SkScalar       sweepAngle,
                    bool           useCenter,
                    const SkPaint& paint) override {
-        SkPath path;
         bool fillNoPathEffect = SkPaint::kFill_Style == paint.getStyle() && !paint.getPathEffect();
-        SkPathPriv::CreateDrawArcPath(
-                &path, SkArc::Make(oval, startAngle, sweepAngle, useCenter), fillNoPathEffect);
+        SkPath path = SkPathPriv::CreateDrawArcPath(
+                SkArc::Make(oval, startAngle, sweepAngle, useCenter), fillNoPathEffect);
         this->drawPath(path, paint);
     }
 
     void onDrawRRect(const SkRRect& rrect, const SkPaint& paint) override {
-        SkPath path;
-        path.addRRect(rrect);
-        this->drawPath(path, paint);
+        this->drawPath(SkPath::RRect(rrect), paint);
     }
 
     void onDrawPath(const SkPath& platonicPath, const SkPaint& originalPaint) override {
@@ -1364,7 +1583,9 @@ public:
 
         // Apply the path effect.
         if (paint.getPathEffect() || paint.getStyle() != SkPaint::kFill_Style) {
-            bool fill = skpathutils::FillPathWithPaint(path, paint, &path);
+            SkPathBuilder builder;
+            bool fill = skpathutils::FillPathWithPaint(path, paint, &builder);
+            path = builder.detach();
 
             paint.setPathEffect(nullptr);
             if (fill) {
@@ -1380,7 +1601,7 @@ public:
         // If done to the canvas then everything would get clipped out.
         m.postTranslate(0, fBaselineOffset);  // put the baseline at 0
         m.postScale(1, -1);                   // and flip it since OpenType is y-up.
-        path.transform(m);
+        path = path.makeTransform(m);
 
         // While creating the default glyf, union with dark colors and intersect with bright colors.
         SkColor  color = paint.getColor();
@@ -1414,8 +1635,7 @@ public:
     }
 
     void finishGlyph() {
-        SkPath baseGlyph;
-        fBasePath.resolve(&baseGlyph);
+        SkPath baseGlyph = fBasePath.resolve().value_or(SkPath());
         fGlyf->fBounds = this->writePath(baseGlyph, false);
     }
 

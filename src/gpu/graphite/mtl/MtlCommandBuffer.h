@@ -8,9 +8,9 @@
 #ifndef skgpu_graphite_MtlCommandBuffer_DEFINED
 #define skgpu_graphite_MtlCommandBuffer_DEFINED
 
+#include "include/private/base/SkLog.h"
 #include "src/gpu/graphite/CommandBuffer.h"
 #include "src/gpu/graphite/DrawPass.h"
-#include "src/gpu/graphite/Log.h"
 #include "src/gpu/graphite/mtl/MtlResourceProvider.h"
 
 #include <memory>
@@ -54,7 +54,7 @@ public:
             [(*fCommandBuffer) waitUntilCompleted];
         }
         if (!this->isFinished()) {
-            SKGPU_LOG_E("Unfinished command buffer status: %d",
+            SKIA_LOG_E("Unfinished command buffer status: %d",
                         (int)(*fCommandBuffer).status);
             SkASSERT(false);
         }
@@ -73,10 +73,10 @@ private:
     void onResetCommandBuffer() override;
 
     bool onAddRenderPass(const RenderPassDesc&,
-                         SkIRect renderPassBounds,
                          const Texture* colorTexture,
                          const Texture* resolveTexture,
                          const Texture* depthStencilTexture,
+                         SkIPoint resolveOffset,
                          SkIRect viewport,
                          const DrawPassList&) override;
     bool onAddComputePass(DispatchGroupSpan) override;
@@ -88,20 +88,15 @@ private:
                          const Texture* depthStencilTexture);
     void endRenderPass();
 
-    void addDrawPass(const DrawPass*);
+    [[nodiscard]] bool addDrawPass(DrawPass*);
 
     void updateIntrinsicUniforms(SkIRect viewport);
 
     void bindGraphicsPipeline(const GraphicsPipeline*);
-    void setBlendConstants(float* blendConstants);
+    void setBlendConstants(std::array<float, 4> blendConstants);
 
     void bindUniformBuffer(const BindBufferInfo& info, UniformSlot);
-    void bindDrawBuffers(const BindBufferInfo& vertices,
-                         const BindBufferInfo& instances,
-                         const BindBufferInfo& indices,
-                         const BindBufferInfo& indirect);
-    void bindVertexBuffers(const Buffer* vertexBuffer, size_t vertexOffset,
-                           const Buffer* instanceBuffer, size_t instanceOffset);
+    void bindInputBuffer(const Buffer* buffer, size_t offset, uint32_t bindingIndex);
     void bindIndexBuffer(const Buffer* indexBuffer, size_t offset);
     void bindIndirectBuffer(const Buffer* indirectBuffer, size_t offset);
 

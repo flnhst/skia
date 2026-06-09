@@ -9,9 +9,11 @@
 #define skgpu_graphite_VulkanTexture_DEFINED
 
 #include "include/core/SkRefCnt.h"
+#include "include/gpu/graphite/vk/VulkanGraphiteTypes.h"
 #include "include/gpu/vk/VulkanTypes.h"
 #include "include/private/base/SkTArray.h"
 #include "src/gpu/graphite/Texture.h"
+#include "src/gpu/graphite/TextureInfoPriv.h"
 #include "src/gpu/graphite/vk/VulkanImageView.h"
 
 #include <utility>
@@ -24,7 +26,9 @@ class Sampler;
 class VulkanSharedContext;
 class VulkanCommandBuffer;
 class VulkanDescriptorSet;
+class VulkanFramebuffer;
 class VulkanResourceProvider;
+struct RenderPassDesc;
 
 class VulkanTexture : public Texture {
 public:
@@ -42,7 +46,8 @@ public:
     static sk_sp<Texture> Make(const VulkanSharedContext*,
                                SkISize dimensions,
                                const TextureInfo&,
-                               sk_sp<VulkanYcbcrConversion>);
+                               sk_sp<VulkanYcbcrConversion>,
+                               std::string_view label);
 
     static sk_sp<Texture> MakeWrapped(const VulkanSharedContext*,
                                       SkISize dimensions,
@@ -50,18 +55,21 @@ public:
                                       sk_sp<MutableTextureState>,
                                       VkImage,
                                       const VulkanAlloc&,
-                                      sk_sp<VulkanYcbcrConversion>);
+                                      sk_sp<VulkanYcbcrConversion>,
+                                      std::string_view label);
 
     ~VulkanTexture() override;
 
+    const VulkanTextureInfo& vulkanTextureInfo() const {
+        return TextureInfoPriv::Get<VulkanTextureInfo>(this->textureInfo());
+    }
     VkImage vkImage() const { return fImage; }
 
     void setImageLayout(VulkanCommandBuffer* buffer,
                         VkImageLayout newLayout,
                         VkAccessFlags dstAccessMask,
-                        VkPipelineStageFlags dstStageMask,
-                        bool byRegion) const {
-        this->setImageLayoutAndQueueIndex(buffer, newLayout, dstAccessMask, dstStageMask, byRegion,
+                        VkPipelineStageFlags dstStageMask) const {
+        this->setImageLayoutAndQueueIndex(buffer, newLayout, dstAccessMask, dstStageMask,
                                           VK_QUEUE_FAMILY_IGNORED);
     }
 
@@ -69,7 +77,6 @@ public:
                                      VkImageLayout newLayout,
                                      VkAccessFlags dstAccessMask,
                                      VkPipelineStageFlags dstStageMask,
-                                     bool byRegion,
                                      uint32_t newQueueFamilyIndex) const;
 
     // This simply updates our internal tracking of the image layout and does not actually perform
@@ -91,15 +98,26 @@ public:
     void addCachedSingleTextureDescriptorSet(sk_sp<VulkanDescriptorSet>,
                                             sk_sp<const Sampler>) const;
 
+    sk_sp<VulkanFramebuffer> getCachedFramebuffer(const RenderPassDesc& renderPassDesc,
+                                                  const VulkanTexture* msaaTexture,
+                                                  const VulkanTexture* depthStencilTexture) const;
+    void addCachedFramebuffer(sk_sp<VulkanFramebuffer>);
+
+    bool canUploadOnHost() const override;
+    // Once upload is finished, the image will be in the VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+    // layout.
+    bool uploadDataOnHost(const UploadSource& source) override;
+
 private:
     VulkanTexture(const VulkanSharedContext* sharedContext,
                   SkISize dimensions,
-                  const TextureInfo& info,
+                  const TextureInfo&,
                   sk_sp<MutableTextureState>,
                   VkImage,
                   const VulkanAlloc&,
                   Ownership,
-                  sk_sp<VulkanYcbcrConversion>);
+                  sk_sp<VulkanYcbcrConversion>,
+                  std::string_view label);
 
     void freeGpuData() override;
 
@@ -113,6 +131,8 @@ private:
 
     using CachedTextureDescSet = std::pair<sk_sp<const Sampler>, sk_sp<VulkanDescriptorSet>>;
     mutable skia_private::STArray<3, CachedTextureDescSet> fCachedSingleTextureDescSets;
+
+    skia_private::STArray<3, sk_sp<VulkanFramebuffer>> fCachedFramebuffers;
 };
 
 } // namespace skgpu::graphite

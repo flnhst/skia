@@ -7,7 +7,10 @@
 
 #include "src/gpu/graphite/QueueManager.h"
 
+#include "include/gpu/GpuTypes.h"
 #include "include/gpu/graphite/Recording.h"
+#include "include/private/base/SkAssert.h"
+#include "include/private/base/SkLog.h"
 #include "src/core/SkTraceEvent.h"
 #include "src/gpu/GpuTypesPriv.h"
 #include "src/gpu/RefCntedCallback.h"
@@ -16,11 +19,11 @@
 #include "src/gpu/graphite/CommandBuffer.h"
 #include "src/gpu/graphite/ContextPriv.h"
 #include "src/gpu/graphite/GpuWorkSubmission.h"
-#include "src/gpu/graphite/Log.h"
 #include "src/gpu/graphite/RecordingPriv.h"
 #include "src/gpu/graphite/Surface_Graphite.h"
 #include "src/gpu/graphite/UploadBufferManager.h"
 #include "src/gpu/graphite/task/Task.h"
+#include "src/gpu/graphite/task/TaskList.h"
 
 namespace skgpu::graphite {
 
@@ -39,8 +42,8 @@ QueueManager::~QueueManager() {
     if (fSharedContext->caps()->allowCpuSync()) {
         this->checkForFinishedWork(SyncToCpu::kYes);
     } else if (!fOutstandingSubmissions.empty()) {
-        SKGPU_LOG_F("When ContextOptions::fNeverYieldToWebGPU is specified all GPU work must be "
-                    "finished before destroying Context.");
+        SK_ABORT("When ContextOptions::fNeverYieldToWebGPU is specified all GPU work "
+                 "must be finished before destroying Context.");
     }
 }
 
@@ -66,7 +69,7 @@ bool QueueManager::setupCommandBuffer(ResourceProvider* resourceProvider, Protec
         if (fCurrentCommandBuffer->isProtected() != isProtected) {
             // If we're doing things where we are switching between using protected and unprotected
             // command buffers, it is our job to make sure previous work was submitted.
-            SKGPU_LOG_E("Trying to use a CommandBuffer with protectedness that differs from our "
+            SKIA_LOG_E("Trying to use a CommandBuffer with protectedness that differs from our "
                         "current active command buffer.");
             return false;
         }
@@ -81,66 +84,70 @@ bool QueueManager::setupCommandBuffer(ResourceProvider* resourceProvider, Protec
     return true;
 }
 
-bool QueueManager::addRecording(const InsertRecordingInfo& info, Context* context) {
-    TRACE_EVENT0("skia.gpu", TRACE_FUNC);
+InsertStatus QueueManager::addRecording(const InsertRecordingInfo& info, Context* context) {
+    TRACE_EVENT0_ALWAYS("skia.gpu", TRACE_FUNC);
 
-    bool addTimerQuery = false;
+    // Configure the callback before validation so that failures are propagated to the finish
+    // procs that were registered on `info` as well.
+    GpuStatsFlags activeStatsFlags = GpuStatsFlags::kNone;
     sk_sp<RefCntedCallback> callback;
     if (info.fFinishedWithStatsProc) {
-        addTimerQuery = info.fGpuStatsFlags & GpuStatsFlags::kElapsedTime;
-        if (addTimerQuery && !(context->supportedGpuStats() & GpuStatsFlags::kElapsedTime)) {
-            addTimerQuery = false;
-            SKGPU_LOG_W("Requested elapsed time reporting but not supported by Context.");
+        activeStatsFlags = info.fGpuStatsFlags;
+        if (activeStatsFlags != GpuStatsFlags::kNone) {
+            GpuStatsFlags unsupportedStatsFlags = activeStatsFlags & ~context->supportedGpuStats();
+            if (unsupportedStatsFlags != GpuStatsFlags::kNone) {
+                activeStatsFlags &= ~unsupportedStatsFlags;
+                SKIA_LOG_W("Requested GpuStats reporting (0x%x) but not supported by Context.",
+                            static_cast<uint32_t>(unsupportedStatsFlags));
+            }
         }
         callback = RefCntedCallback::Make(info.fFinishedWithStatsProc, info.fFinishedContext);
     } else if (info.fFinishedProc) {
         callback = RefCntedCallback::Make(info.fFinishedProc, info.fFinishedContext);
     }
 
-    SkASSERT(info.fRecording);
-    if (!info.fRecording) {
-        if (callback) {
-            callback->setFailureResult();
-        }
-        SKGPU_LOG_E("No valid Recording passed into addRecording call");
-        return false;
-    }
+#define RETURN_FAIL_IF(failureCase, status, fmt, ...)                   \
+    if (failureCase) {                                                  \
+        if (callback) { callback->setFailureResult(); }                 \
+        if (info.fRecording) {                                          \
+            info.fRecording->priv().setFailureResultForFinishedProcs(); \
+            info.fRecording->priv().deinstantiateVolatileLazyProxies(); \
+        }                                                               \
+        SKIA_LOG_E(fmt, ##__VA_ARGS__);                                 \
+        return status;                                                  \
+    } do {} while(false)
+#define SIMULATE_FAIL(status) \
+    RETURN_FAIL_IF(info.fSimulatedStatus == status, status, "Simulating '" #status "' failure")
 
-    if (fSharedContext->caps()->requireOrderedRecordings()) {
-        uint32_t* recordingID = fLastAddedRecordingIDs.find(info.fRecording->priv().recorderID());
-        if (recordingID &&
-            info.fRecording->priv().uniqueID() != *recordingID+1) {
-            if (callback) {
-                callback->setFailureResult();
-            }
-            SKGPU_LOG_E("Recordings are expected to be replayed in order");
-            return false;
-        }
+    RETURN_FAIL_IF(!info.fRecording,
+                   InsertStatus::kInvalidRecording,
+                   "No valid Recording passed into addRecording call");
+
+    // Recordings from a Recorder that requires ordered recordings will have a valid recorder ID.
+    // Recordings that don't have any required order are assigned SK_InvalidID.
+    uint32_t recorderID = info.fRecording->priv().recorderID();
+    if (recorderID != SK_InvalidGenID) {
+        uint32_t* recordingID = fLastAddedRecordingIDs.find(recorderID);
+        RETURN_FAIL_IF(recordingID && info.fRecording->priv().uniqueID() != *recordingID + 1,
+                       InsertStatus::kOutOfOrderRecording,
+                       "Recordings are expected to be replayed in order");
 
         // Note the new Recording ID.
-        fLastAddedRecordingIDs.set(info.fRecording->priv().recorderID(),
-                                   info.fRecording->priv().uniqueID());
+        fLastAddedRecordingIDs.set(recorderID, info.fRecording->priv().uniqueID());
     }
 
-    if (info.fTargetSurface &&
-        !static_cast<const SkSurface_Base*>(info.fTargetSurface)->isGraphiteBacked()) {
-        if (callback) {
-            callback->setFailureResult();
-        }
-        info.fRecording->priv().setFailureResultForFinishedProcs();
-        SKGPU_LOG_E("Target surface passed into addRecording call is not graphite-backed");
-        return false;
-    }
+    RETURN_FAIL_IF(info.fTargetSurface && !asSB(info.fTargetSurface)->isGraphiteBacked(),
+                   InsertStatus::kInvalidRecording,
+                    "Target surface passed into addRecording call is not Graphite-backed");
+
+    SIMULATE_FAIL(InsertStatus::kInvalidRecording);
 
     auto resourceProvider = context->priv().resourceProvider();
-    if (!this->setupCommandBuffer(resourceProvider, fSharedContext->isProtected())) {
-        if (callback) {
-            callback->setFailureResult();
-        }
-        info.fRecording->priv().setFailureResultForFinishedProcs();
-        SKGPU_LOG_E("CommandBuffer creation failed");
-        return false;
-    }
+    // Technically no commands have been added yet, but if this fails, things are in a bad state
+    // so signal the unrecoverable status.
+    RETURN_FAIL_IF(!this->setupCommandBuffer(resourceProvider, fSharedContext->isProtected()),
+                   InsertStatus::kAddCommandsFailed,
+                   "CommandBuffer creation failed");
 
     // This must happen before instantiating the lazy proxies, because the target for draws in this
     // recording may itself be a lazy proxy whose instantiation must be handled specially here.
@@ -150,47 +157,38 @@ bool QueueManager::addRecording(const InsertRecordingInfo& info, Context* contex
     TextureProxy* deferredTargetProxy = info.fRecording->priv().deferredTargetProxy();
     AutoDeinstantiateTextureProxy autoDeinstantiateTargetProxy(deferredTargetProxy);
     const Texture* replayTarget = nullptr;
-    if (deferredTargetProxy && info.fTargetSurface) {
+    if (deferredTargetProxy) {
+        RETURN_FAIL_IF(!info.fTargetSurface,
+                       InsertStatus::kPromiseImageInstantiationFailed,
+                       "No surface provided to instantiate deferred replay target");
+
         replayTarget = info.fRecording->priv().setupDeferredTarget(
                 resourceProvider,
                 static_cast<Surface*>(info.fTargetSurface),
                 info.fTargetTranslation,
                 info.fTargetClip);
-        if (!replayTarget) {
-            SKGPU_LOG_E("Failed to set up deferred replay target");
-            return false;
-        }
 
-    } else if (deferredTargetProxy && !info.fTargetSurface) {
-        SKGPU_LOG_E("No surface provided to instantiate deferred replay target.");
-        return false;
+        RETURN_FAIL_IF(!replayTarget,
+                        InsertStatus::kPromiseImageInstantiationFailed,
+                        "Failed to set up deferred replay target");
     }
 
-    if (info.fRecording->priv().hasNonVolatileLazyProxies()) {
-        if (!info.fRecording->priv().instantiateNonVolatileLazyProxies(resourceProvider)) {
-            if (callback) {
-                callback->setFailureResult();
-            }
-            info.fRecording->priv().setFailureResultForFinishedProcs();
-            SKGPU_LOG_E("Non-volatile PromiseImage instantiation has failed");
-            return false;
-        }
-    }
+    RETURN_FAIL_IF(info.fRecording->priv().hasNonVolatileLazyProxies() &&
+                   !info.fRecording->priv().instantiateNonVolatileLazyProxies(resourceProvider),
+                   InsertStatus::kPromiseImageInstantiationFailed,
+                   "Non-volatile PromiseImage instantiation has failed");
 
-    if (info.fRecording->priv().hasVolatileLazyProxies()) {
-        if (!info.fRecording->priv().instantiateVolatileLazyProxies(resourceProvider)) {
-            if (callback) {
-                callback->setFailureResult();
-            }
-            info.fRecording->priv().setFailureResultForFinishedProcs();
-            info.fRecording->priv().deinstantiateVolatileLazyProxies();
-            SKGPU_LOG_E("Volatile PromiseImage instantiation has failed");
-            return false;
-        }
-    }
+    RETURN_FAIL_IF(info.fRecording->priv().hasVolatileLazyProxies() &&
+                   !info.fRecording->priv().instantiateVolatileLazyProxies(resourceProvider),
+                   InsertStatus::kPromiseImageInstantiationFailed,
+                   "Volitile PromiseImage instantiation has failed");
 
-    if (addTimerQuery) {
-        fCurrentCommandBuffer->startTimerQuery();
+    SIMULATE_FAIL(InsertStatus::kPromiseImageInstantiationFailed);
+
+    if (activeStatsFlags != GpuStatsFlags::kNone) {
+        if (!fCurrentCommandBuffer->startStatsQuery(activeStatsFlags)) {
+            activeStatsFlags = GpuStatsFlags::kNone;
+        }
     }
     fCurrentCommandBuffer->addWaitSemaphores(info.fNumWaitSemaphores, info.fWaitSemaphores);
     if (!info.fRecording->priv().addCommands(context,
@@ -198,21 +196,40 @@ bool QueueManager::addRecording(const InsertRecordingInfo& info, Context* contex
                                              replayTarget,
                                              info.fTargetTranslation,
                                              info.fTargetClip)) {
-        if (callback) {
-            callback->setFailureResult();
-        }
-        info.fRecording->priv().setFailureResultForFinishedProcs();
-        info.fRecording->priv().deinstantiateVolatileLazyProxies();
-        SKGPU_LOG_E("Adding Recording commands to the CommandBuffer has failed");
-        return false;
+        // If the commands failed, iterate over all the used pipelines to see if their async
+        // compilation was the reason for failure. Clients that manage pipeline disk caches may
+        // want to handle the failure differently than when any other GPU command failed.
+        // We will only report the 1st pipeline creation's failure message.
+        std::string failureMsg;
+        const bool validPipelines = info.fRecording->priv().taskList()->visitPipelines(
+                [&failureMsg](const GraphicsPipeline* pipeline) {
+                    if (auto failure = pipeline->didAsyncCompilationFail()) {
+                        failureMsg = *failure;
+                        return false;
+                    }
+                    return true;
+                });
+
+        // We are already definitely going to fail, it's just a matter of which status to return
+        RETURN_FAIL_IF(validPipelines,
+                       InsertStatus::kAddCommandsFailed,
+                       "Adding Recording commands to the CommandBuffer has failed");
+        RETURN_FAIL_IF(
+                true,
+                InsertStatus(InsertStatus::kAsyncShaderCompilesFailed, std::move(failureMsg)),
+                "Async pipeline compiles failed, unable to add Recording commands");
     }
+
+    SIMULATE_FAIL(InsertStatus::kAddCommandsFailed);
+    SIMULATE_FAIL(InsertStatus::kAsyncShaderCompilesFailed);
+
     fCurrentCommandBuffer->addSignalSemaphores(info.fNumSignalSemaphores, info.fSignalSemaphores);
     if (info.fTargetTextureState) {
         fCurrentCommandBuffer->prepareSurfaceForStateUpdate(info.fTargetSurface,
                                                             info.fTargetTextureState);
     }
-    if (addTimerQuery) {
-        fCurrentCommandBuffer->endTimerQuery();
+    if (activeStatsFlags != GpuStatsFlags::kNone) {
+        fCurrentCommandBuffer->endStatsQuery(activeStatsFlags);
     }
 
     if (callback) {
@@ -221,7 +238,10 @@ bool QueueManager::addRecording(const InsertRecordingInfo& info, Context* contex
 
     info.fRecording->priv().deinstantiateVolatileLazyProxies();
 
-    return true;
+    // If we got here, the simulated status should be kSuccess or it means we missed returning the
+    // simulated error earlier.
+    SkASSERT(info.fSimulatedStatus == InsertStatus::kSuccess);
+    return InsertStatus::kSuccess;
 }
 
 bool QueueManager::addTask(Task* task,
@@ -229,17 +249,17 @@ bool QueueManager::addTask(Task* task,
                            Protected isProtected) {
     SkASSERT(task);
     if (!task) {
-        SKGPU_LOG_E("No valid Task passed into addTask call");
+        SKIA_LOG_E("No valid Task passed into addTask call");
         return false;
     }
 
     if (!this->setupCommandBuffer(context->priv().resourceProvider(), isProtected)) {
-        SKGPU_LOG_E("CommandBuffer creation failed");
+        SKIA_LOG_E("CommandBuffer creation failed");
         return false;
     }
 
     if (task->addCommands(context, fCurrentCommandBuffer.get(), {}) == Task::Status::kFail) {
-        SKGPU_LOG_E("Adding Task commands to the CommandBuffer has failed");
+        SKIA_LOG_E("Adding Task commands to the CommandBuffer has failed");
         return false;
     }
 
@@ -258,7 +278,7 @@ bool QueueManager::addFinishInfo(const InsertFinishInfo& info,
         if (callback) {
             callback->setFailureResult();
         }
-        SKGPU_LOG_E("CommandBuffer creation failed");
+        SKIA_LOG_E("CommandBuffer creation failed");
         return false;
     }
 
@@ -270,24 +290,43 @@ bool QueueManager::addFinishInfo(const InsertFinishInfo& info,
     return true;
 }
 
-bool QueueManager::submitToGpu() {
-    TRACE_EVENT0("skia.gpu", TRACE_FUNC);
+bool QueueManager::submitToGpu(const SubmitInfo& submitInfo) {
+    TRACE_EVENT0_ALWAYS("skia.gpu", TRACE_FUNC);
+
+    sk_sp<RefCntedCallback> callback;
+    if (submitInfo.fFinishedProc) {
+        callback = RefCntedCallback::Make(submitInfo.fFinishedProc, submitInfo.fFinishedContext);
+    }
 
     if (!fCurrentCommandBuffer) {
+        // If a finish proc was provided, attach it to the most recent outstanding submission,
+        // or let it fire immediately if the GPU is idle (when callback goes out of scope).
+        if (callback) {
+            if (!fOutstandingSubmissions.empty()) {
+                OutstandingSubmission* back =
+                        (OutstandingSubmission*)fOutstandingSubmissions.back();
+                (*back)->addFinishedProc(std::move(callback));
+            }
+            return true;
+        }
         // We warn because this probably representative of a bad client state, where they don't
         // need to submit but didn't notice, but technically the submit itself is fine (no-op), so
         // we return true.
-        SKGPU_LOG_D("Submit called with no active command buffer!");
+        SKIA_LOG_D("Submit called with no active command buffer!");
         return true;
     }
 
 #ifdef SK_DEBUG
     if (!fCurrentCommandBuffer->hasWork()) {
-        SKGPU_LOG_D("Submitting empty command buffer!");
+        SKIA_LOG_D("Submitting empty command buffer!");
     }
 #endif
 
-    auto submission = this->onSubmitToGpu();
+    if (callback) {
+        fCurrentCommandBuffer->addFinishedProc(std::move(callback));
+    }
+
+    auto submission = this->onSubmitToGpu(submitInfo);
     if (!submission) {
         return false;
     }
@@ -297,6 +336,14 @@ bool QueueManager::submitToGpu() {
 }
 
 bool QueueManager::hasUnfinishedGpuWork() { return !fOutstandingSubmissions.empty(); }
+
+bool QueueManager::hasPendingGPUWork() const {
+    // Only check if fCurrentCommandBuffer is non-null.
+    // If there is no command in the command buffer i.e. fCurrentCommandBuffer->hasWork() is false,
+    // it's still considered valid. Because clients can insert a recording without any command just
+    // to track the finish proc.
+    return fCurrentCommandBuffer != nullptr;
+}
 
 void QueueManager::checkForFinishedWork(SyncToCpu sync) {
     TRACE_EVENT1("skia.gpu", TRACE_FUNC, "sync", sync == SyncToCpu::kYes);
@@ -320,6 +367,7 @@ void QueueManager::checkForFinishedWork(SyncToCpu sync) {
         // Make sure we remove before deleting as deletion might try to kick off another submit
         // (though hopefully *not* in Graphite).
         fOutstandingSubmissions.pop_front();
+
         // Since we used placement new we are responsible for calling the destructor manually.
         front->~OutstandingSubmission();
         front = (OutstandingSubmission*)fOutstandingSubmissions.front();
@@ -333,10 +381,11 @@ void QueueManager::returnCommandBuffer(std::unique_ptr<CommandBuffer> commandBuf
     bufferList->push_back(std::move(commandBuffer));
 }
 
-void QueueManager::addUploadBufferManagerRefs(UploadBufferManager* uploadManager) {
+void QueueManager::addUploadBufferManagerRefs(UploadBufferManager* uploadManager,
+                                              ResourceProvider* resourceProvider) {
+    this->setupCommandBuffer(resourceProvider, skgpu::Protected::kNo);
     SkASSERT(fCurrentCommandBuffer);
     uploadManager->transferToCommandBuffer(fCurrentCommandBuffer.get());
 }
-
 
 } // namespace skgpu::graphite

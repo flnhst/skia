@@ -1,5 +1,5 @@
 /*
- * Copyright 2019 Google Inc.
+ * Copyright 2019 Google LLC
  *
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
@@ -70,6 +70,7 @@ bool MetalWindowContext_ios::onInitializeContext() {
     fMetalLayer = (CAMetalLayer*)fMetalView.layer;
     fMetalLayer.device = fDevice.get();
     fMetalLayer.pixelFormat = MTLPixelFormatBGRA8Unorm;
+    fMetalLayer.framebufferOnly = false;
     fMetalLayer.drawableSize = frameRect.size;
     fMetalLayer.frame = frameRect;
 

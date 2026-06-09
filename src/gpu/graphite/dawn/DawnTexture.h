@@ -9,12 +9,17 @@
 #define skgpu_graphite_DawnTexture_DEFINED
 
 #include "include/core/SkRefCnt.h"
+#include "include/gpu/graphite/dawn/DawnGraphiteTypes.h"
+#include "include/private/base/SkTArray.h"
 #include "src/gpu/graphite/Texture.h"
+#include "src/gpu/graphite/TextureInfoPriv.h"
 
 #include "webgpu/webgpu_cpp.h"  // NO_G3_REWRITE
 
 namespace skgpu::graphite {
+
 class DawnSharedContext;
+class Sampler;
 
 class DawnTexture : public Texture {
 public:
@@ -24,23 +29,33 @@ public:
 
     static sk_sp<Texture> Make(const DawnSharedContext*,
                                SkISize dimensions,
-                               const TextureInfo&);
+                               const TextureInfo&,
+                               std::string_view label);
 
     static sk_sp<Texture> MakeWrapped(const DawnSharedContext*,
                                       SkISize dimensions,
                                       const TextureInfo&,
-                                      wgpu::Texture);
+                                      wgpu::Texture,
+                                      std::string_view label);
 
     static sk_sp<Texture> MakeWrapped(const DawnSharedContext*,
                                       SkISize dimensions,
                                       const TextureInfo&,
-                                      const wgpu::TextureView&);
+                                      const wgpu::TextureView&,
+                                      std::string_view label);
 
     ~DawnTexture() override {}
 
     const wgpu::Texture& dawnTexture() const { return fTexture; }
     const wgpu::TextureView& sampleTextureView() const { return fSampleTextureView; }
     const wgpu::TextureView& renderTextureView() const { return fRenderTextureView; }
+
+    const DawnTextureInfo& dawnTextureInfo() const {
+        return TextureInfoPriv::Get<DawnTextureInfo>(this->textureInfo());
+    }
+
+    const wgpu::BindGroup* getCachedSingleTextureBindGroup(const Sampler*) const;
+    void addCachedSingleTextureBindGroup(wgpu::BindGroup, const Sampler*) const;
 
 private:
     DawnTexture(const DawnSharedContext*,
@@ -49,7 +64,8 @@ private:
                 wgpu::Texture,
                 wgpu::TextureView sampleTextureView,
                 wgpu::TextureView renderTextureView,
-                Ownership);
+                Ownership,
+                std::string_view label);
 
     void freeGpuData() override;
 
@@ -61,6 +77,11 @@ private:
     wgpu::Texture     fTexture;
     wgpu::TextureView fSampleTextureView;
     wgpu::TextureView fRenderTextureView;
+
+    // We store const Sampler pointers rather than using SkRefCnt for lifetime management because
+    // dynamic samplers are drawn from and kept alive by the GlobalCache.
+    using CachedTextureBindGroup = std::pair<const Sampler*, wgpu::BindGroup>;
+    mutable skia_private::STArray<3, CachedTextureBindGroup> fCachedSingleTextureBindGroups;
 };
 
 }  // namespace skgpu::graphite

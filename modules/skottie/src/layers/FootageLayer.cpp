@@ -1,5 +1,5 @@
 /*
- * Copyright 2019 Google Inc.
+ * Copyright 2019 Google LLC
  *
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
@@ -39,9 +39,9 @@ SkMatrix image_matrix(const ImageAsset::FrameData& frame_data, const SkISize& de
 
     const auto size_fit_matrix = frame_data.scaling == ImageAsset::SizeFit::kNone
             ? SkMatrix::I()
-            : SkMatrix::RectToRect(SkRect::Make(frame_data.image->bounds()),
-                                   SkRect::Make(dest_size),
-                                   static_cast<SkMatrix::ScaleToFit>(frame_data.scaling));
+            : SkMatrix::RectToRectOrIdentity(SkRect::Make(frame_data.image->bounds()),
+                                             SkRect::Make(dest_size),
+                                             static_cast<SkMatrix::ScaleToFit>(frame_data.scaling));
 
     return frame_data.matrix * size_fit_matrix;
 }

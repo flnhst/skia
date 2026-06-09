@@ -1,5 +1,5 @@
 /*
- * Copyright 2018 Google Inc.
+ * Copyright 2018 Google LLC
  *
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
@@ -72,8 +72,8 @@ const GrMtlRenderPipeline* GrMtlResourceProvider::findOrCreateMSAALoadPipeline(
     if (!fMSAALoadLibrary) {
         TRACE_EVENT0("skia", TRACE_FUNC);
 
-        std::string shaderText;
-        shaderText.append(
+        SkSL::NativeShader shader;
+        shader.fText.append(
                 "#include <metal_stdlib>\n"
                 "#include <simd/simd.h>\n"
                 "using namespace metal;\n"
@@ -105,7 +105,7 @@ const GrMtlRenderPipeline* GrMtlResourceProvider::findOrCreateMSAALoadPipeline(
         );
 
         auto errorHandler = fGpu->getContext()->priv().getShaderErrorHandler();
-        fMSAALoadLibrary = GrCompileMtlShaderLibrary(fGpu, shaderText, errorHandler);
+        fMSAALoadLibrary = GrCompileMtlShaderLibrary(fGpu, shader, errorHandler);
         if (!fMSAALoadLibrary) {
             return nullptr;
         }

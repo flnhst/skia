@@ -26,15 +26,20 @@ uint32_t create_unique_id() {
 Resource::Resource(const SharedContext* sharedContext,
                    Ownership ownership,
                    size_t gpuMemorySize,
-                   bool reusableRequiresPurgeable)
+                   std::string_view label,
+                   bool reusableRequiresPurgeable,
+                   bool requiresPrepareForReturnToCache)
         : fRefs(RefIncrement(RefType::kUsage)) // Start with 1 usage ref and no others
         , fReusableRefMask(
-                (reusableRequiresPurgeable ? PurgeableMask() : RefMask(RefType::kUsage)) |
-                RefMask(RefType::kReturnQueue))
+            (reusableRequiresPurgeable ? PurgeableMask()
+                                       : RefMask(RefType::kUsage)) | RefMask(RefType::kReturnQueue))
         , fSharedContext(sharedContext)
-        , fOwnership(ownership)
         , fUniqueID(create_unique_id())
-        , fGpuMemorySize(gpuMemorySize) {
+        , fOwnership(ownership)
+        , fRequiresPrepareForReturnToCache(requiresPrepareForReturnToCache)
+        , fGpuMemorySize(gpuMemorySize)
+        , fLabel(label)
+        , fBackendLabelDirty(!label.empty()) {
     // At initialization time, a Resource should not be considered budgeted because it does not yet
     // belong to a ResourceCache (which manages a budget). Wrapped resources and owned-but-uncached
     // resources will never be added to a cache and can therefore depend on this default value (as
@@ -105,10 +110,10 @@ void Resource::dumpMemoryStatistics(SkTraceMemoryDump* traceMemoryDump,
 
     size_t size = this->gpuMemorySize();
 
-    // Avoid dumping zero-sized objects (e.g. Samplers, pipelines, etc) except memoryless textures.
-    // TODO: Would a client ever actually want to see all of this? Wouldn't be hard to add it as an
-    // option.
-    if (size == 0 && this->asTexture() == nullptr) {
+    // Dump zero-sized objects (e.g. Samplers, pipelines, etc) per traceMemoryDump implementation.
+    // Always dump memoryless textures.
+    if (size == 0 && !traceMemoryDump->shouldDumpSizelessObjects() &&
+        this->asTexture() == nullptr) {
         return;
     }
 
@@ -117,7 +122,7 @@ void Resource::dumpMemoryStatistics(SkTraceMemoryDump* traceMemoryDump,
 
     traceMemoryDump->dumpNumericValue(resourceName.c_str(), "size", "bytes", size);
     traceMemoryDump->dumpStringValue(resourceName.c_str(), "type", this->getResourceType());
-    traceMemoryDump->dumpStringValue(resourceName.c_str(), "label", this->getLabel().c_str());
+    traceMemoryDump->dumpStringValue(resourceName.c_str(), "label", this->getLabel());
     if (inPurgeableQueue) {
         traceMemoryDump->dumpNumericValue(resourceName.c_str(), "purgeable_size", "bytes", size);
     }

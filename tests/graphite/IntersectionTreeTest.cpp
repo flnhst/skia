@@ -1,5 +1,5 @@
 /*
- * Copyright 2021 Google Inc.
+ * Copyright 2021 Google LLC
  *
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
@@ -8,6 +8,8 @@
 #include "src/base/SkRandom.h"
 #include "src/gpu/graphite/geom/IntersectionTree.h"
 #include "tests/Test.h"
+
+#include <vector>
 
 namespace skgpu::graphite {
 
@@ -29,7 +31,7 @@ private:
 
 #define CHECK(A) REPORTER_ASSERT(reporter, A)
 
-DEF_GRAPHITE_TEST(skgpu_IntersectionTree, reporter, CtsEnforcement::kApiLevel_V) {
+DEF_GRAPHITE_TEST(skgpu_IntersectionTree, reporter, CtsEnforcement::kApiLevel_202404) {
     SkRandom rand;
     {
         SimpleIntersectionTree simpleTree;

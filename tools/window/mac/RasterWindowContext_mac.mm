@@ -1,5 +1,5 @@
 /*
- * Copyright 2019 Google Inc.
+ * Copyright 2019 Google LLC
  *
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
@@ -23,6 +23,10 @@
 using skwindow::DisplayParams;
 using skwindow::MacWindowInfo;
 using skwindow::internal::GLWindowContext;
+
+// All of NSOpenGL is deprecated.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
 
 namespace {
 
@@ -175,6 +179,8 @@ void RasterWindowContext_mac::resize(int w, int h) {
 }
 
 }  // anonymous namespace
+
+#pragma clang diagnostic pop
 
 namespace skwindow {
 

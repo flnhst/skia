@@ -312,7 +312,7 @@ void GrDrawingManager::removeRenderTasks() {
     for (const auto& task : fDAG) {
         SkASSERT(task);
         if (!task->unique() || task->requiresExplicitCleanup()) {
-            // TODO: Eventually uniqueness should be guaranteed: http://skbug.com/7111.
+            // TODO: Eventually uniqueness should be guaranteed: skbug.com/40038346.
             // DDLs, however, will always require an explicit notification for when they
             // can clean up resources.
             task->endFlush(this);
@@ -333,14 +333,14 @@ void GrDrawingManager::sortTasks() {
         SkASSERT(std::none_of(span.begin(), span.end(), [](const auto& t) {
             return t->blocksReordering();
         }));
-        SkASSERT(span.end() == fDAG.end() || fDAG[end]->blocksReordering());
+        SkASSERT(span.data() + span.size() == fDAG.end() || fDAG[end]->blocksReordering());
 
 #if defined(SK_DEBUG)
         // In order to partition the dag array like this it must be the case that each partition
         // only depends on nodes in the partition or earlier partitions.
         auto check = [&](const GrRenderTask* task, auto&& check) -> void {
             SkASSERT(GrRenderTask::TopoSortTraits::WasOutput(task) ||
-                     std::find_if(span.begin(), span.end(), [task](const auto& n) {
+                     std::any_of(span.begin(), span.end(), [task](const auto& n) {
                          return n.get() == task; }));
             for (int i = 0; i < task->fDependencies.size(); ++i) {
                 check(task->fDependencies[i], check);
@@ -835,19 +835,21 @@ void GrDrawingManager::newWaitRenderTask(const sk_sp<GrSurfaceProxy>& proxy,
     SkDEBUGCODE(this->validate());
 }
 
-void GrDrawingManager::newTransferFromRenderTask(const sk_sp<GrSurfaceProxy>& srcProxy,
-                                                 const SkIRect& srcRect,
-                                                 GrColorType surfaceColorType,
-                                                 GrColorType dstColorType,
-                                                 sk_sp<GrGpuBuffer> dstBuffer,
-                                                 size_t dstOffset) {
+sk_sp<GrTransferFromRenderTask> GrDrawingManager::newTransferFromRenderTask(
+        const sk_sp<GrSurfaceProxy>& srcProxy,
+        const SkIRect& srcRect,
+        GrColorType surfaceColorType,
+        GrColorType dstColorType,
+        sk_sp<GrGpuBuffer> dstBuffer,
+        size_t dstOffset) {
     SkDEBUGCODE(this->validate());
     SkASSERT(fContext);
     this->closeActiveOpsTask();
 
-    GrRenderTask* task = this->appendTask(sk_make_sp<GrTransferFromRenderTask>(
+    sk_sp<GrTransferFromRenderTask> task = sk_make_sp<GrTransferFromRenderTask>(
             srcProxy, srcRect, surfaceColorType, dstColorType,
-            std::move(dstBuffer), dstOffset));
+            std::move(dstBuffer), dstOffset);
+    SkAssertResult(this->appendTask(task) == task.get());
 
     const GrCaps& caps = *fContext->priv().caps();
 
@@ -861,6 +863,8 @@ void GrDrawingManager::newTransferFromRenderTask(const sk_sp<GrSurfaceProxy>& sr
     // shouldn't be an active one.
     SkASSERT(!fActiveOpsTask);
     SkDEBUGCODE(this->validate());
+
+    return task;
 }
 
 void GrDrawingManager::newBufferTransferTask(sk_sp<GrGpuBuffer> src,

@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Google Inc.
+ * Copyright 2017 Google LLC
  *
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
@@ -86,8 +86,10 @@ public:
                            ProgramDescOverrideFlags) const override;
     MTLPixelFormat getStencilPixelFormat(const GrProgramDesc& desc) const;
 
-    bool isMac() const { return fGPUFamily == GPUFamily::kMac; }
-    bool isApple() const { return fGPUFamily == GPUFamily::kApple; }
+    bool isMac() const   { return fGPUFamily == GPUFamily::kMac ||
+                                  fGPUFamily == GPUFamily::kMacIntel; }
+    bool isApple() const { return fGPUFamily == GPUFamily::kApple;    }
+    bool isIntel() const { return fGPUFamily == GPUFamily::kMacIntel; }
 
     size_t getMinBufferAlignment() const { return this->isMac() ? 4 : 1; }
 
@@ -180,8 +182,9 @@ private:
     void setColorType(GrColorType, std::initializer_list<MTLPixelFormat> formats);
 
     enum class GPUFamily {
-        kMac,
         kApple,
+        kMac,
+        kMacIntel,
     };
     bool getGPUFamily(id<MTLDevice> device, GPUFamily* gpuFamily, int* group);
     bool getGPUFamilyFromFeatureSet(id<MTLDevice> device, GrMtlCaps::GPUFamily* gpuFamily,

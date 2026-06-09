@@ -1,5 +1,5 @@
 /*
- * Copyright 2019 Google Inc.
+ * Copyright 2019 Google LLC
  *
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
@@ -63,6 +63,7 @@ bool MetalWindowContext_mac::onInitializeContext() {
     fMetalLayer.magnificationFilter = kCAFilterNearest;
     NSColorSpace* cs = fMainView.window.colorSpace;
     fMetalLayer.colorspace = cs.CGColorSpace;
+    fMetalLayer.framebufferOnly = false;
 
     fMainView.layer = fMetalLayer;
     fMainView.wantsLayer = YES;

@@ -5,14 +5,14 @@
  * found in the LICENSE file.
  */
 
-#include "include/core/SkExecutor.h"
-#include "include/gpu/ganesh/GrContextOptions.h"
 #include "tools/flags/CommonFlagsGanesh.h"
 
-DEFINE_int(gpuThreads,
-             2,
-             "Create this many extra threads to assist with GPU work, "
-             "including software path rendering. Defaults to two.");
+#include "include/core/SkExecutor.h"
+#include "include/gpu/ganesh/GrContextOptions.h"
+
+// Defined in CommonFlagsConfig
+DECLARE_int(gpuThreads)
+DECLARE_int(internalSamples)
 
 namespace CommonFlags {
 
@@ -27,9 +27,6 @@ static DEFINE_string(pr, "",
               "Set of enabled gpu path renderers. Defined as a list of: "
               "[~]none [~]dashline [~]aahairline [~]aaconvex [~]aalinearizing [~]small [~]tri "
               "[~]atlas [~]tess [~]all");
-
-static DEFINE_int(internalSamples, -1,
-        "Number of samples for internal draws that use MSAA, or default value if negative.");
 
 static DEFINE_int(maxAtlasSize, -1,
         "Maximum width and height of internal texture atlases, or default value if negative.");
@@ -69,7 +66,7 @@ static GpuPathRenderers get_named_pathrenderers_flags(const char* name) {
     } else if (!strcmp(name, "default")) {
         return GpuPathRenderers::kDefault;
     }
-    SK_ABORT("error: unknown named path renderer \"%s\"\n", name);
+    SK_ABORT("error: unknown named path renderer \"%s\"", name);
 }
 
 static GpuPathRenderers collect_gpu_path_renderers_from_flags() {

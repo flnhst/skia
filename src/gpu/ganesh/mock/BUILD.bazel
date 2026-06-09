@@ -8,6 +8,7 @@ licenses(["notice"])
 
 MOCK_FILES = [
     "GrMockAttachment.h",
+    "GrMockBackendSurface.cpp",
     "GrMockBuffer.h",
     "GrMockCaps.cpp",
     "GrMockCaps.h",
@@ -47,8 +48,10 @@ generate_cpp_files_for_headers(
     headers = [
         "GrMockAttachment.h",
         "GrMockBuffer.h",
-        "GrMockOpsRenderPass.h",
+        "GrMockCaps.h",
+        "GrMockGpu.h",
         "GrMockOpTarget.h",
+        "GrMockOpsRenderPass.h",
         "GrMockRenderTask.h",
         "GrMockSurfaceProxy.h",
         "GrMockTexture.h",

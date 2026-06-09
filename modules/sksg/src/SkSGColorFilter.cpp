@@ -1,5 +1,5 @@
 /*
- * Copyright 2018 Google Inc.
+ * Copyright 2018 Google LLC
  *
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
@@ -11,10 +11,10 @@
 #include "include/core/SkColor.h"
 #include "include/core/SkColorFilter.h"
 #include "include/core/SkMatrix.h"
-#include "include/private/SkColorData.h"
 #include "include/private/base/SkAssert.h"
 #include "modules/sksg/include/SkSGPaint.h"
 #include "modules/sksg/include/SkSGRenderNode.h"
+#include "src/core/SkColorData.h"
 
 #include <cmath>
 #include <cstddef>

@@ -1,5 +1,5 @@
 /*
- * Copyright 2019 Google Inc.
+ * Copyright 2019 Google LLC
  *
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
@@ -178,7 +178,7 @@ class SkMakeZipDetail {
 public:
     template<typename... Ts>
     static constexpr auto MakeZip(Ts&& ... ts) {
-
+        // NOLINTBEGIN
         // Pick the first collection that has a size, and use that for the size.
         size_t size = PickOneSize<DecayPointerT<Ts>...>::Size(std::forward<Ts>(ts)...);
 
@@ -197,6 +197,7 @@ public:
 #endif
 
         return SkZip<ValueType<Ts>...>(size, Span<Ts>::Data(std::forward<Ts>(ts))...);
+        // NOLINTEND
     }
 };
 

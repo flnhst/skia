@@ -20,7 +20,6 @@
 #include "include/gpu/ganesh/GrBackendSurface.h"
 #include "include/gpu/ganesh/GrRecordingContext.h"
 #include "include/gpu/ganesh/GrTypes.h"
-#include "include/private/SkColorData.h"
 #include "include/private/base/SkAssert.h"
 #include "include/private/base/SkDebug.h"
 #include "include/private/base/SkPoint_impl.h"
@@ -29,6 +28,7 @@
 #include "src/base/SkArenaAlloc.h"
 #include "src/base/SkSafeMath.h"
 #include "src/base/SkVx.h"
+#include "src/core/SkColorData.h"
 #include "src/core/SkLatticeIter.h"
 #include "src/core/SkSLTypeShared.h"
 #include "src/gpu/BufferWriter.h"
@@ -571,7 +571,7 @@ GR_DRAW_OP_TEST_DEFINE(NonAALatticeOp) {
     dst.fTop = random->nextRangeScalar(-2000.5f, 1000.f);
     dst.fRight = dst.fLeft + random->nextRangeScalar(0.5f, 1000.f);
     dst.fBottom = dst.fTop + random->nextRangeScalar(0.5f, 1000.f);
-    std::unique_ptr<SkLatticeIter> iter(new SkLatticeIter(lattice, dst));
+    auto iter = std::make_unique<SkLatticeIter>(lattice, dst);
     SkMatrix viewMatrix = GrTest::TestMatrixPreservesRightAngles(random);
     auto csxf = GrTest::TestColorXform(random);
     GrSamplerState::Filter filter =

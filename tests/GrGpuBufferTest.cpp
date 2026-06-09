@@ -1,5 +1,5 @@
 /*
- * Copyright 2022 Google Inc.
+ * Copyright 2022 Google LLC
  *
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
@@ -14,10 +14,10 @@
 #include "include/core/SkSurfaceProps.h"
 #include "include/core/SkTypes.h"
 #include "include/gpu/ganesh/GrDirectContext.h"
-#include "include/private/SkColorData.h"
 #include "include/private/base/SkAlign.h"
 #include "include/private/base/SkTemplates.h"
 #include "include/private/gpu/ganesh/GrTypesPriv.h"
+#include "src/core/SkColorData.h"
 #include "src/core/SkSLTypeShared.h"
 #include "src/gpu/SkBackingFit.h"
 #include "src/gpu/ganesh/GrAppliedClip.h"

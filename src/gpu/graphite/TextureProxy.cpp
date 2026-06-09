@@ -8,6 +8,7 @@
 #include "src/gpu/graphite/TextureProxy.h"
 
 #include "include/gpu/graphite/Recorder.h"
+#include "include/private/SkPixelStorage.h"
 #include "src/core/SkMipmap.h"
 #include "src/gpu/graphite/Caps.h"
 #include "src/gpu/graphite/RecorderPriv.h"
@@ -56,6 +57,10 @@ TextureProxy::TextureProxy(SkISize dimensions,
 
 TextureProxy::~TextureProxy() {}
 
+SkPixelStorage::Type TextureProxy::type() const {
+    return SkPixelStorage::Type::kTextureProxy;
+}
+
 SkISize TextureProxy::dimensions() const {
     SkASSERT(!this->isFullyLazy() || this->isInstantiated());
     return this->isInstantiated() ? fTexture->dimensions() : fDimensions;
@@ -76,10 +81,6 @@ bool TextureProxy::isVolatile() const {
     SkASSERT(fVolatile == Volatile::kNo || SkToBool(fLazyInstantiateCallback));
 
     return fVolatile == Volatile::kYes;
-}
-
-bool TextureProxy::isProtected() const {
-    return fInfo.isProtected() == Protected::kYes;
 }
 
 size_t TextureProxy::uninstantiatedGpuMemorySize() const {
@@ -172,10 +173,7 @@ sk_sp<TextureProxy> TextureProxy::Make(const Caps* caps,
         return nullptr;
     }
 
-    sk_sp<TextureProxy> proxy{new TextureProxy(dimensions,
-                                               textureInfo,
-                                               std::move(label),
-                                               budgeted)};
+    sk_sp<TextureProxy> proxy {new TextureProxy(dimensions, textureInfo, label, budgeted)};
     if (budgeted == Budgeted::kNo) {
         // Instantiate immediately to avoid races later on if the client starts to use the wrapping
         // object on multiple threads.
@@ -226,7 +224,7 @@ sk_sp<TextureProxy> TextureProxy::Wrap(sk_sp<Texture> texture) {
 #ifdef SK_DEBUG
 void TextureProxy::validateTexture(const Texture* texture) {
     SkASSERT(this->isFullyLazy() || fDimensions == texture->dimensions());
-    SkASSERTF(fInfo.isCompatible(texture->textureInfo()),
+    SkASSERTF(fInfo.canBeFulfilledBy(texture->textureInfo()),
               "proxy->fInfo[%s] incompatible with texture->fInfo[%s]",
               fInfo.toString().c_str(),
               texture->textureInfo().toString().c_str());
