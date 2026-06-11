@@ -219,20 +219,5 @@ bool PlaceholderStyle::equals(const PlaceholderStyle& other) const {
             nearlyEqual(fBaselineOffset, other.fBaselineOffset));
 }
 
-int TextStyle::sizeofTextStyle()
-{
-    return sizeof(TextStyle);
-}
-
-int TextStyle::sizeofVectorSkString()
-{
-    return sizeof(std::vector<SkString>);
-}
-
-int TextStyle::sizeofVectorInt()
-{
-    return sizeof(std::vector<int>);
-}
-
 }  // namespace textlayout
 }  // namespace skia

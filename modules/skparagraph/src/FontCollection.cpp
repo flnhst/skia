@@ -19,12 +19,12 @@ namespace textlayout {
 
 struct FontCollection::FaceCache {
     struct FamilyKey {
-        FamilyKey(const std::vector<SkString>& familyNames, SkFontStyle style, const std::optional<FontArguments>& args)
+        FamilyKey(const skia_private::TArray<SkString>& familyNames, SkFontStyle style, const std::optional<FontArguments>& args)
                 : fFamilyNames(familyNames), fFontStyle(style), fFontArguments(args) {}
 
         FamilyKey() {}
 
-        std::vector<SkString> fFamilyNames;
+        skia_private::TArray<SkString> fFamilyNames;
         SkFontStyle fFontStyle;
         std::optional<FontArguments> fFontArguments;
 
@@ -47,7 +47,7 @@ struct FontCollection::FaceCache {
             }
         };
     };
-    skia_private::THashMap<FamilyKey, std::vector<sk_sp<SkTypeface>>, FamilyKey::Hasher> fTypefaces;
+    skia_private::THashMap<FamilyKey, skia_private::TArray<sk_sp<SkTypeface>>, FamilyKey::Hasher> fTypefaces;
 };
 
 struct FontCollection::VariationCache {
@@ -79,8 +79,6 @@ FontCollection::FontCollection()
         : fFaceCache(std::make_unique<FaceCache>())
         , fVariationCache(std::make_unique<VariationCache>())
         , fEnableFontFallback(true)
-        , fDefaultFamilyNames({SkString(DEFAULT_FONT_FAMILY)}) { }
-        : fEnableFontFallback(true)
         , fDefaultFamilyNames({SkString(DEFAULT_FONT_FAMILY)}) {
     
 }
@@ -95,8 +93,6 @@ sk_sp<FontCollection> FontCollection::Make() {
 
     return sk_make_sp<FontCollection>();
 }
-
-FontCollection::~FontCollection() {}
 
 size_t FontCollection::getFontManagersCount() const { return this->getFontManagerOrder().size(); }
 
@@ -215,7 +211,7 @@ sk_sp<SkTypeface> FontCollection::matchTypeface(const SkString& familyName, SkFo
 
 // Find ANY font in available font managers that resolves the unicode codepoint
 sk_sp<SkTypeface> FontCollection::defaultFallback(SkUnichar unicode,
-                                                  const std::vector<SkString>& families,
+                                                  const const skia_private::TArray<SkString>& families,
                                                   SkFontStyle fontStyle,
                                                   const SkString& locale,
                                                   const std::optional<FontArguments>& fontArgs) {

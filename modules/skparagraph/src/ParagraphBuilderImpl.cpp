@@ -18,51 +18,9 @@
 namespace skia {
 namespace textlayout {
 
-#if !defined(SK_DISABLE_LEGACY_PARAGRAPH_UNICODE)
-
-namespace {
-// TODO(kjlubick,jlavrova) Remove these defines by having clients register something or somehow
-// plumbing this all into the animation builder factories.
-sk_sp<SkUnicode> get_unicode() {
-#ifdef SK_UNICODE_ICU_IMPLEMENTATION
-    if (auto unicode = SkUnicodes::ICU::Make()) {
-        return unicode;
-    }
-#endif
-#ifdef SK_UNICODE_ICU4X_IMPLEMENTATION
-    if (auto unicode = SkUnicodes::ICU4X::Make()) {
-        return unicode;
-    }
-#endif
-#ifdef SK_UNICODE_LIBGRAPHEME_IMPLEMENTATION
-    if (auto unicode = SkUnicodes::Libgrapheme::Make()) {
-        return unicode;
-    }
-#endif
-    return nullptr;
-}
-}
-
 ParagraphBuilder::ParagraphBuilder() = default;
 
 ParagraphBuilder::~ParagraphBuilder() = default;
-
-std::unique_ptr<ParagraphBuilder> ParagraphBuilder::make(const ParagraphStyle& style,
-                                                         sk_sp<FontCollection> fontCollection) {
-    return ParagraphBuilderImpl::make(style, std::move(fontCollection), get_unicode());
-}
-
-std::unique_ptr<ParagraphBuilder> ParagraphBuilderImpl::make(const ParagraphStyle& style,
-                                                             sk_sp<FontCollection> fontCollection) {
-    return std::make_unique<ParagraphBuilderImpl>(style, std::move(fontCollection), get_unicode());
-}
-
-ParagraphBuilderImpl::ParagraphBuilderImpl(
-        const ParagraphStyle& style, sk_sp<FontCollection> fontCollection)
-        : ParagraphBuilderImpl(style, std::move(fontCollection), get_unicode())
-{ }
-
-#endif  // !defined(SK_DISABLE_LEGACY_PARAGRAPH_UNICODE)
 
 std::unique_ptr<ParagraphBuilder> ParagraphBuilder::make(const ParagraphStyle& style,
                                                          sk_sp<FontCollection> fontCollection,

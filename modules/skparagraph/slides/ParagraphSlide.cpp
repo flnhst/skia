@@ -4375,7 +4375,7 @@ public:
 
         canvas->drawColor(SK_ColorWHITE);
         auto fontCollection = sk_make_sp<FontCollection>();
-        fontCollection->setDefaultFontManager(ToolUtils::TestFontMgr(), std::vector<SkString>());
+        fontCollection->setDefaultFontManager(ToolUtils::TestFontMgr(), skia_private::TArray<SkString>());
         fontCollection->enableFontFallback();
         TextStyle text_style;
         text_style.setFontFamilies({SkString("Roboto")});

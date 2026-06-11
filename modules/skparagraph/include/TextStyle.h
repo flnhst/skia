@@ -352,9 +352,7 @@ private:
 
     std::optional<FontArguments> fFontArguments;
 
-    SkFont::Edging fEdging = SkFont::Edging::kSubpixelAntiAlias;
     SkFontHinting fFontHinting = SkFontHinting::kFull;
-    bool fSubpixel = true;
 };
 
 typedef size_t TextIndex;

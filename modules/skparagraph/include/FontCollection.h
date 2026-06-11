@@ -41,7 +41,7 @@ public:
     skia_private::TArray<sk_sp<SkTypeface>> findTypefaces(const skia_private::TArray<SkString>& familyNames, SkFontStyle fontStyle);
     skia_private::TArray<sk_sp<SkTypeface>> findTypefaces(const skia_private::TArray<SkString>& familyNames, SkFontStyle fontStyle, const std::optional<FontArguments>& fontArgs);
 
-    sk_sp<SkTypeface> defaultFallback(SkUnichar unicode, const std::vector<SkString>& families,
+    sk_sp<SkTypeface> defaultFallback(SkUnichar unicode, const skia_private::TArray<SkString>& families,
                                       SkFontStyle fontStyle, const SkString& locale,
                                       const std::optional<FontArguments>& fontArgs);
     sk_sp<SkTypeface> defaultEmojiFallback(SkUnichar emojiStart, SkFontStyle fontStyle, const SkString& locale);
