@@ -15,6 +15,7 @@
 #include "include/gpu/graphite/GraphiteTypes.h"
 #include "include/gpu/graphite/Recording.h"
 #include "include/private/base/SingleOwner.h"
+#include "include/gpu/graphite/ImageProvider.h"
 #include "include/private/base/SkAPI.h"
 #include "include/private/base/SkTArray.h"
 #include "include/private/base/SkTDArray.h"
