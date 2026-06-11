@@ -27,7 +27,7 @@ def find_msvc():
     # Fixed location, https://github.com/Microsoft/vswhere/wiki/Installing
     vswhere = os.path.join(os.getenv('ProgramFiles(x86)'),
               'Microsoft Visual Studio', 'Installer', 'vswhere.exe')
-    command = (vswhere + ' -prerelease -legacy -products * -sort -utf8 '
+    command = (vswhere + ' -prerelease -legacy -sort -utf8 '
               '-property installationPath')
     paths = subprocess.check_output(command).decode('utf-8').splitlines()
     if paths:
