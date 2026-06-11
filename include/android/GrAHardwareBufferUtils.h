@@ -1,5 +1,5 @@
 /*
- * Copyright 2019 Google Inc.
+ * Copyright 2019 Google LLC
  *
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
@@ -21,10 +21,6 @@ extern "C" {
 }
 
 namespace GrAHardwareBufferUtils {
-
-// TODO: remove this function once Android has been updated to call the AHardwareBufferUtils
-// version
-SkColorType GetSkColorTypeFromBufferFormat(uint32_t bufferFormat);
 
 #if !defined(SK_DISABLE_LEGACY_ANDROID_HW_UTILS)
 GrBackendFormat GetBackendFormat(GrDirectContext* dContext, AHardwareBuffer* hardwareBuffer,

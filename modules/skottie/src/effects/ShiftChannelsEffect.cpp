@@ -1,5 +1,5 @@
 /*
- * Copyright 2019 Google Inc.
+ * Copyright 2019 Google LLC
  *
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
@@ -7,7 +7,6 @@
 
 #include "include/core/SkColorFilter.h"
 #include "include/core/SkRefCnt.h"
-#include "include/private/SkColorData.h"
 #include "include/private/base/SkTPin.h"
 #include "modules/skottie/src/SkottiePriv.h"
 #include "modules/skottie/src/SkottieValue.h"
@@ -15,6 +14,7 @@
 #include "modules/skottie/src/effects/Effects.h"
 #include "modules/sksg/include/SkSGColorFilter.h"
 #include "modules/sksg/include/SkSGRenderNode.h"
+#include "src/core/SkColorData.h"
 
 #include <array>
 #include <cstddef>

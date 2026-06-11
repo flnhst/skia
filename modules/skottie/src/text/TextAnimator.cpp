@@ -1,5 +1,5 @@
 /*
- * Copyright 2019 Google Inc.
+ * Copyright 2019 Google LLC
  *
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
@@ -83,6 +83,9 @@ sk_sp<TextAnimator> TextAnimator::Make(const skjson::ObjectValue* janimator,
     if (const skjson::ArrayValue* jselectors = (*janimator)["s"]) {
         selectors.reserve(jselectors->size());
         for (const skjson::ObjectValue* jselector : *jselectors) {
+            if (!jselector) {
+                continue;
+            }
             if (auto sel = RangeSelector::Make(*jselector, abuilder, acontainer)) {
                 selectors.push_back(std::move(sel));
             }

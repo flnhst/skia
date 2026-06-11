@@ -1,5 +1,5 @@
 /*
-* Copyright 2017 Google Inc.
+* Copyright 2017 Google LLC
 *
 * Use of this source code is governed by a BSD-style license that can be
 * found in the LICENSE file.
@@ -139,7 +139,7 @@ void StatsLayer::onPaint(SkSurface* surface) {
     SkAutoCanvasRestore acr(canvas, /*doSave=*/true);
 
     // Scale the canvas while keeping the right edge in place.
-    canvas->concat(SkMatrix::RectToRect(SkRect::Make(canvasSize),
+    canvas->concat(*SkMatrix::Rect2Rect(SkRect::Make(canvasSize),
                                         SkRect::MakeXYWH(canvasSize.width()  * (1 - kScale),
                                                          0,
                                                          canvasSize.width()  * kScale,

@@ -1,12 +1,11 @@
-// Copyright 2019 Google LLC.
+// Copyright 2019 Google LLC
 #include "modules/skparagraph/include/FontCollection.h"
 
 #include "include/core/SkTypeface.h"
 #include "modules/skparagraph/include/Paragraph.h"
 #include "modules/skparagraph/src/ParagraphImpl.h"
 #include "modules/skshaper/include/SkShaper_harfbuzz.h"
-
-#include <iostream>
+#include "src/core/SkTHash.h"
 
 namespace {
 #if defined(SK_BUILD_FOR_MAC) || defined(SK_BUILD_FOR_IOS)
@@ -18,50 +17,86 @@ namespace {
 namespace skia {
 namespace textlayout {
 
-bool FontCollection::FamilyKey::operator==(const FontCollection::FamilyKey& other) const {
-    return fFamilyNames == other.fFamilyNames &&
-           fFontStyle == other.fFontStyle &&
-           fFontArguments == other.fFontArguments;
-}
+struct FontCollection::FaceCache {
+    struct FamilyKey {
+        FamilyKey(const std::vector<SkString>& familyNames, SkFontStyle style, const std::optional<FontArguments>& args)
+                : fFamilyNames(familyNames), fFontStyle(style), fFontArguments(args) {}
 
-FontCollection::FamilyKey::FamilyKey(const skia_private::TArray<SkString>& familyNames, SkFontStyle style, const std::optional<FontArguments>& args)
-        : fFamilyNames(familyNames), fFontStyle(style), fFontArguments(args) {}
+        FamilyKey() {}
 
-FontCollection::FamilyKey::FamilyKey() {}
+        std::vector<SkString> fFamilyNames;
+        SkFontStyle fFontStyle;
+        std::optional<FontArguments> fFontArguments;
 
-FontCollection::FamilyKey::~FamilyKey() {}
+        bool operator==(const FamilyKey& other) const {
+            return fFamilyNames == other.fFamilyNames &&
+                   fFontStyle == other.fFontStyle &&
+                   fFontArguments == other.fFontArguments;
+        }
 
-FontCollection::FamilyKey::Hasher::Hasher() {}
+        struct Hasher {
+            size_t operator()(const FamilyKey& key) const {
+                size_t hash = 0;
+                for (const SkString& family : key.fFamilyNames) {
+                    hash ^= std::hash<std::string>()(family.c_str());
+                }
+                return hash ^
+                       std::hash<uint32_t>()(key.fFontStyle.weight()) ^
+                       std::hash<uint32_t>()(key.fFontStyle.slant()) ^
+                       std::hash<std::optional<FontArguments>>()(key.fFontArguments);
+            }
+        };
+    };
+    skia_private::THashMap<FamilyKey, std::vector<sk_sp<SkTypeface>>, FamilyKey::Hasher> fTypefaces;
+};
 
-FontCollection::FamilyKey::Hasher::~Hasher() {}
+struct FontCollection::VariationCache {
+    struct Key {
+        Key(SkTypefaceID typefaceID, const FontArguments& args)
+                : fTypefaceID(typefaceID), fFontArguments(args) {}
 
-size_t FontCollection::FamilyKey::Hasher::operator()(const FontCollection::FamilyKey& key) const {
-    size_t hash = 0;
-    for (const SkString& family : key.fFamilyNames) {
-        hash ^= std::hash<std::string>()(family.c_str());
-    }
-    return hash ^
-           std::hash<uint32_t>()(key.fFontStyle.weight()) ^
-           std::hash<uint32_t>()(key.fFontStyle.slant()) ^
-           std::hash<std::optional<FontArguments>>()(key.fFontArguments);
-}
+        Key() : fFontArguments(SkFontArguments()) {}
+
+        SkTypefaceID fTypefaceID;
+        FontArguments fFontArguments;
+
+        bool operator==(const Key& other) const {
+            return fTypefaceID == other.fTypefaceID &&
+                   fFontArguments == other.fFontArguments;
+        }
+
+        struct Hasher {
+            size_t operator()(const Key& key) const {
+                return std::hash<SkTypefaceID>()(key.fTypefaceID) ^
+                       std::hash<FontArguments>()(key.fFontArguments);
+            }
+        };
+    };
+    skia_private::THashMap<Key, sk_sp<SkTypeface>, Key::Hasher> fTypefaces;
+};
 
 FontCollection::FontCollection()
+        : fFaceCache(std::make_unique<FaceCache>())
+        , fVariationCache(std::make_unique<VariationCache>())
+        , fEnableFontFallback(true)
+        , fDefaultFamilyNames({SkString(DEFAULT_FONT_FAMILY)}) { }
         : fEnableFontFallback(true)
         , fDefaultFamilyNames({SkString(DEFAULT_FONT_FAMILY)}) {
-    std::cout << "FontCollection::FontCollection(): called." << std::endl;
+    
 }
 
 FontCollection::~FontCollection()
 {
-    std::cout << "FontCollection::~FontCollection(): called." << std::endl;
+    
 }
 
 sk_sp<FontCollection> FontCollection::Make() {
-    std::cout << "FontCollection::Make(): called." << std::endl;
+    
 
     return sk_make_sp<FontCollection>();
 }
+
+FontCollection::~FontCollection() {}
 
 size_t FontCollection::getFontManagersCount() const { return this->getFontManagerOrder().size(); }
 
@@ -117,8 +152,8 @@ skia_private::TArray<sk_sp<SkTypeface>> FontCollection::findTypefaces(const skia
 
 skia_private::TArray<sk_sp<SkTypeface>> FontCollection::findTypefaces(const skia_private::TArray<SkString>& familyNames, SkFontStyle fontStyle, const std::optional<FontArguments>& fontArgs) {
     // Look inside the font collections cache first
-    FamilyKey familyKey(familyNames, fontStyle, fontArgs);
-    auto found = fTypefaces.find(familyKey);
+    FaceCache::FamilyKey familyKey(familyNames, fontStyle, fontArgs);
+    auto found = fFaceCache->fTypefaces.find(familyKey);
     if (found) {
         return *found;
     }
@@ -127,7 +162,7 @@ skia_private::TArray<sk_sp<SkTypeface>> FontCollection::findTypefaces(const skia
     for (const SkString& familyName : familyNames) {
         sk_sp<SkTypeface> match = matchTypeface(familyName, fontStyle);
         if (match && fontArgs) {
-            match = fontArgs->CloneTypeface(match);
+            match = cloneTypeface(match, fontArgs.value());
         }
         if (match) {
             typefaces.emplace_back(std::move(match));
@@ -151,11 +186,14 @@ skia_private::TArray<sk_sp<SkTypeface>> FontCollection::findTypefaces(const skia
             }
         }
         if (match) {
+            if (fontArgs) {
+                match = cloneTypeface(match, fontArgs.value());
+            }
             typefaces.emplace_back(std::move(match));
         }
     }
 
-    fTypefaces.set(familyKey, typefaces);
+    fFaceCache->fTypefaces.set(familyKey, typefaces);
     return typefaces;
 }
 
@@ -177,18 +215,24 @@ sk_sp<SkTypeface> FontCollection::matchTypeface(const SkString& familyName, SkFo
 
 // Find ANY font in available font managers that resolves the unicode codepoint
 sk_sp<SkTypeface> FontCollection::defaultFallback(SkUnichar unicode,
+                                                  const std::vector<SkString>& families,
                                                   SkFontStyle fontStyle,
-                                                  const SkString& locale) {
+                                                  const SkString& locale,
+                                                  const std::optional<FontArguments>& fontArgs) {
 
     for (const auto& manager : this->getFontManagerOrder()) {
         std::vector<const char*> bcp47;
         if (!locale.isEmpty()) {
             bcp47.push_back(locale.c_str());
         }
+        const char* familyName = families.empty() ? nullptr : families[0].c_str();
         sk_sp<SkTypeface> typeface(manager->matchFamilyStyleCharacter(
-            nullptr, fontStyle, bcp47.data(), bcp47.size(), unicode));
+            familyName, fontStyle, bcp47.data(), bcp47.size(), unicode));
 
         if (typeface != nullptr) {
+            if (fontArgs) {
+                typeface = cloneTypeface(typeface, fontArgs.value());
+            }
             return typeface;
         }
     }
@@ -241,12 +285,25 @@ sk_sp<SkTypeface> FontCollection::defaultFallback() {
     return nullptr;
 }
 
+sk_sp<SkTypeface> FontCollection::cloneTypeface(const sk_sp<SkTypeface>& typeface,
+                                                const FontArguments& args) {
+    VariationCache::Key variationKey(typeface->uniqueID(), args);
+    auto found = fVariationCache->fTypefaces.find(variationKey);
+    if (found) {
+        return *found;
+    }
+    sk_sp<SkTypeface> clone = args.CloneTypeface(typeface);
+    fVariationCache->fTypefaces.set(variationKey, clone);
+    return clone;
+}
+
 void FontCollection::disableFontFallback() { fEnableFontFallback = false; }
 void FontCollection::enableFontFallback() { fEnableFontFallback = true; }
 
 void FontCollection::clearCaches() {
     fParagraphCache.reset();
-    fTypefaces.reset();
+    fFaceCache->fTypefaces.reset();
+    fVariationCache->fTypefaces.reset();
     SkShapers::HB::PurgeCaches();
 }
 

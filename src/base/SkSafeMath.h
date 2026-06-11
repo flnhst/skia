@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Google Inc.
+ * Copyright 2017 Google LLC
  *
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
@@ -49,6 +49,15 @@ public:
             return a;
         }
         return a + b;
+    }
+
+    int mulInt(int x, int y) {
+        int64_t result = (int64_t)x * (int64_t)y;
+        if (result > std::numeric_limits<int>::max() || result < std::numeric_limits<int>::min()) {
+            fOK = false;
+            return x;
+        }
+        return (int)result;
     }
 
     size_t alignUp(size_t x, size_t alignment) {

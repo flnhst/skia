@@ -88,7 +88,7 @@ static sk_sp<SkData> create_image_data(const SkImageInfo& info) {
 
 static skgpu::graphite::TextureProxy* top_device_graphite_target_proxy(SkCanvas* canvas) {
     if (auto gpuDevice = SkCanvasPriv::TopDevice(canvas)->asGraphiteDevice()) {
-        return gpuDevice->target();
+        return gpuDevice->target().proxy();
     }
     return nullptr;
 }
@@ -98,7 +98,7 @@ DEF_CONDITIONAL_GRAPHITE_TEST_FOR_ALL_CONTEXTS(GraphiteBudgetedResourcesTest,
                                                context,
                                                testContext,
                                                true,
-                                               CtsEnforcement::kApiLevel_V) {
+                                               CtsEnforcement::kApiLevel_202404) {
     std::unique_ptr<Recorder> recorder = context->makeRecorder();
     ResourceProvider* resourceProvider = recorder->priv().resourceProvider();
     ResourceCache* resourceCache = resourceProvider->resourceCache();
@@ -208,8 +208,13 @@ DEF_CONDITIONAL_GRAPHITE_TEST_FOR_ALL_CONTEXTS(GraphiteBudgetedResourcesTest,
     }
     const Resource* imageResourcePtr = imageProxy->texture();
     REPORTER_ASSERT(reporter, imageResourcePtr);
-    // There is an extra resource for the buffer that is uploading the data to the texture
-    REPORTER_ASSERT(reporter, resourceCache->getResourceCount() == 3);
+    // There is an extra resource for the buffer that is uploading the data to the texture. If host
+    // image copy is supported, the buffer may or may not be used based on other parameters.
+    const int buffersUsedForUpload = resourceCache->getResourceCount() - 2;
+    REPORTER_ASSERT(reporter, buffersUsedForUpload <= 1);
+    REPORTER_ASSERT(reporter,
+                    context->priv().caps()->supportsHostImageCopy() || buffersUsedForUpload == 1);
+    REPORTER_ASSERT(reporter, resourceCache->getResourceCount() == 2 + buffersUsedForUpload);
     REPORTER_ASSERT(reporter, resourceCache->numFindableResources() == 1);
     REPORTER_ASSERT(reporter, imageResourcePtr->budgeted() == Budgeted::kNo);
 
@@ -227,10 +232,11 @@ DEF_CONDITIONAL_GRAPHITE_TEST_FOR_ALL_CONTEXTS(GraphiteBudgetedResourcesTest,
     imageGpu.reset();
     resourceCache->forceProcessReturnedResources();
 
-    REPORTER_ASSERT(reporter, resourceCache->getResourceCount() == 3);
+    REPORTER_ASSERT(reporter, resourceCache->getResourceCount() == 2 + buffersUsedForUpload);
     // Remapping async buffers before returning them to the cache can extend buffer lifetime.
     if (!context->priv().caps()->bufferMapsAreAsync()) {
-        REPORTER_ASSERT(reporter, resourceCache->numFindableResources() == 3);
+        REPORTER_ASSERT(reporter,
+                        resourceCache->numFindableResources() == 2 + buffersUsedForUpload);
     }
     REPORTER_ASSERT(reporter, imageResourcePtr->budgeted() == Budgeted::kYes);
 
@@ -254,10 +260,11 @@ DEF_CONDITIONAL_GRAPHITE_TEST_FOR_ALL_CONTEXTS(GraphiteBudgetedResourcesTest,
     }
     const Resource* surfaceResourcePtr = surfaceProxy->texture();
 
-    REPORTER_ASSERT(reporter, resourceCache->getResourceCount() == 4);
+    REPORTER_ASSERT(reporter, resourceCache->getResourceCount() == 3 + buffersUsedForUpload);
     // Remapping async buffers before returning them to the cache can extend buffer lifetime.
     if (!context->priv().caps()->bufferMapsAreAsync()) {
-        REPORTER_ASSERT(reporter, resourceCache->numFindableResources() == 3);
+        REPORTER_ASSERT(reporter,
+                        resourceCache->numFindableResources() == 2 + buffersUsedForUpload);
     }
     REPORTER_ASSERT(reporter, surfaceResourcePtr->budgeted() == Budgeted::kNo);
 
@@ -311,7 +318,7 @@ Resource* add_new_purgeable_resource(skiatest::Reporter* reporter,
 } // namespace
 
 DEF_GRAPHITE_TEST_FOR_ALL_CONTEXTS(GraphitePurgeAsNeededResourcesTest, reporter, context,
-                                   CtsEnforcement::kApiLevel_V) {
+                                   CtsEnforcement::kApiLevel_202404) {
     std::unique_ptr<Recorder> recorder = context->makeRecorder();
     ResourceProvider* resourceProvider = recorder->priv().resourceProvider();
     ResourceCache* resourceCache = resourceProvider->resourceCache();
@@ -438,7 +445,7 @@ DEF_GRAPHITE_TEST_FOR_ALL_CONTEXTS(GraphitePurgeAsNeededResourcesTest, reporter,
 }
 
 DEF_GRAPHITE_TEST_FOR_ALL_CONTEXTS(GraphiteZeroSizedResourcesTest, reporter, context,
-                                   CtsEnforcement::kApiLevel_V) {
+                                   CtsEnforcement::kApiLevel_202404) {
     std::unique_ptr<Recorder> recorder = context->makeRecorder();
     ResourceProvider* resourceProvider = recorder->priv().resourceProvider();
     ResourceCache* resourceCache = resourceProvider->resourceCache();
@@ -543,7 +550,7 @@ skgpu::StdSteadyClock::time_point force_newer_timepoint(
 }
 
 DEF_GRAPHITE_TEST_FOR_ALL_CONTEXTS(GraphitePurgeNotUsedSinceResourcesTest, reporter, context,
-                                   CtsEnforcement::kApiLevel_V) {
+                                   CtsEnforcement::kApiLevel_202404) {
     std::unique_ptr<Recorder> recorder = context->makeRecorder();
     ResourceProvider* resourceProvider = recorder->priv().resourceProvider();
     ResourceCache* resourceCache = resourceProvider->resourceCache();
@@ -634,7 +641,7 @@ DEF_GRAPHITE_TEST_FOR_ALL_CONTEXTS(GraphitePurgeNotUsedSinceResourcesTest, repor
 // resources from mailbox. Even though the returned resources aren't purged by the last used, we
 // still end up purging things to get under budget.
 DEF_GRAPHITE_TEST_FOR_ALL_CONTEXTS(GraphitePurgeNotUsedOverBudgetTest, reporter, context,
-                                   CtsEnforcement::kApiLevel_V) {
+                                   CtsEnforcement::kApiLevel_202404) {
     std::unique_ptr<Recorder> recorder = context->makeRecorder();
     ResourceProvider* resourceProvider = recorder->priv().resourceProvider();
     ResourceCache* resourceCache = resourceProvider->resourceCache();
@@ -724,7 +731,7 @@ DEF_GRAPHITE_TEST_FOR_ALL_CONTEXTS(GraphitePurgeNotUsedOverBudgetTest, reporter,
 // Test call purgeResources on the ResourceCache and make sure all unlocked resources are getting
 // purged regardless of when they were last used.
 DEF_GRAPHITE_TEST_FOR_ALL_CONTEXTS(GraphitePurgeResourcesTest, reporter, context,
-                                   CtsEnforcement::kApiLevel_V) {
+                                   CtsEnforcement::kApiLevel_202404) {
     std::unique_ptr<Recorder> recorder = context->makeRecorder();
     ResourceProvider* resourceProvider = recorder->priv().resourceProvider();
     ResourceCache* resourceCache = resourceProvider->resourceCache();
@@ -791,7 +798,7 @@ DEF_GRAPHITE_TEST_FOR_ALL_CONTEXTS(GraphitePurgeResourcesTest, reporter, context
 }
 
 DEF_GRAPHITE_TEST_FOR_ALL_CONTEXTS(GraphiteScratchResourcesTest, reporter, context,
-                                   CtsEnforcement::kNextRelease) {
+                                   CtsEnforcement::kNever) {
     std::unique_ptr<Recorder> recorder = context->makeRecorder();
     ResourceProvider* resourceProvider = recorder->priv().resourceProvider();
     ResourceCache* resourceCache = resourceProvider->resourceCache();
@@ -823,7 +830,7 @@ DEF_GRAPHITE_TEST_FOR_ALL_CONTEXTS(GraphiteScratchResourcesTest, reporter, conte
 
     REPORTER_ASSERT(reporter, key == resource->key());
     Resource* resourcePtr2 = resourceCache->findAndRefResource(
-            key, Budgeted::kYes, Shareable::kScratch, &unavailable);
+            key, Budgeted::kYes, Shareable::kScratch, /*label=*/{}, &unavailable);
     REPORTER_ASSERT(reporter, !resourcePtr2);
 
     // Return the non-shareable resource and verify that it can now be requested as scratch
@@ -832,7 +839,7 @@ DEF_GRAPHITE_TEST_FOR_ALL_CONTEXTS(GraphiteScratchResourcesTest, reporter, conte
     REPORTER_ASSERT(reporter, resourceCache->numFindableResources() == 1);
 
     resource = sk_sp(resourceCache->findAndRefResource(
-            key, Budgeted::kYes, Shareable::kScratch, &unavailable));
+            key, Budgeted::kYes, Shareable::kScratch, /*label=*/{}, &unavailable));
     REPORTER_ASSERT(reporter, resource.get() == resourcePtr);
     REPORTER_ASSERT(reporter, resource->budgeted() == Budgeted::kYes);
     REPORTER_ASSERT(reporter, resource->shareable() == Shareable::kScratch);
@@ -849,14 +856,14 @@ DEF_GRAPHITE_TEST_FOR_ALL_CONTEXTS(GraphiteScratchResourcesTest, reporter, conte
     // A request for another scratch resource can return the existing one if it hasn't been marked
     // unavailable in the set passed to the cache.
     resourcePtr2 = resourceCache->findAndRefResource(
-            key, Budgeted::kYes, Shareable::kScratch, &unavailable);
+            key, Budgeted::kYes, Shareable::kScratch, /*label=*/{}, &unavailable);
     REPORTER_ASSERT(reporter, resourcePtr2 == resourcePtr);
     resourcePtr2->unref();
 
     // Mark the original resource as unvailable and now it shouldn't be seen by the request.
     unavailable.add(resourcePtr);
     resourcePtr2 = resourceCache->findAndRefResource(
-            key, Budgeted::kYes, Shareable::kScratch, &unavailable);
+            key, Budgeted::kYes, Shareable::kScratch, /*label=*/{}, &unavailable);
     REPORTER_ASSERT(reporter, !resourcePtr2);
 
     // Return the scratch resource, and then simulate a threading race where there's a request for
@@ -865,7 +872,7 @@ DEF_GRAPHITE_TEST_FOR_ALL_CONTEXTS(GraphiteScratchResourcesTest, reporter, conte
     unavailable.reset();
     resource.reset();
     resource = sk_sp(resourceCache->findAndRefResource(
-            key, Budgeted::kYes, Shareable::kScratch, &unavailable));
+            key, Budgeted::kYes, Shareable::kScratch, /*label=*/{}, &unavailable));
     REPORTER_ASSERT(reporter, resource.get() == resourcePtr);
     // At this point, resourcePtr has a usage ref and should be in the return queue
     REPORTER_ASSERT(reporter, resourceCache->testingInReturnQueue(resourcePtr));

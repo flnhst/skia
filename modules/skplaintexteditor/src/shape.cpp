@@ -1,4 +1,4 @@
-// Copyright 2019 Google LLC.
+// Copyright 2019 Google LLC
 // Use of this source code is governed by a BSD-style license that can be found in the LICENSE file.
 
 #include "modules/skplaintexteditor/src/shape.h"
@@ -238,7 +238,7 @@ static void set_character_bounds(void* context,
     SkFontMetrics metrics;
     font.getMetrics(&metrics);
     std::unique_ptr<float[]> advances(new float[glyphCount]);
-    font.getWidths(glyphs, glyphCount, advances.get());
+    font.getWidths({glyphs, glyphCount}, {advances.get(), glyphCount});
 
     // Loop over each cluster in this run.
     size_t clusterStart = 0;

@@ -14,6 +14,7 @@
 #include "include/core/SkRect.h"
 #include "include/core/SkSize.h"
 #include "include/core/SkStream.h"
+#include "include/core/SkTypeface.h"
 #include "include/core/SkTypes.h"
 #include "include/private/base/SkMutex.h"
 #include "include/private/base/SkPoint_impl.h"
@@ -45,6 +46,10 @@
 #include <new>
 #include <utility>
 
+#if defined(SK_CODEC_ENCODES_JPEG) && defined(SK_CODEC_DECODES_JPEG) && !defined(SK_DISABLE_LEGACY_PDF_JPEG)
+#include "include/docs/SkPDFJpegHelpers.h"
+#endif
+
 // For use in SkCanvas::drawAnnotation
 const char* SkPDFGetElemIdKey() {
     static constexpr char key[] = "PDF_Node_Key";
@@ -52,7 +57,7 @@ const char* SkPDFGetElemIdKey() {
 }
 
 static SkString ToValidUtf8String(const SkData& d) {
-    if (d.size() == 0) {
+    if (d.empty()) {
         SkDEBUGFAIL("Not a valid string, data length is zero.");
         return SkString();
     }
@@ -179,7 +184,7 @@ static SkPDFIndirectReference generate_page_tree(
             std::vector<PageTreeNode> result;
             static constexpr size_t kMaxNodeSize = 8;
             const size_t n = vec.size();
-            SkASSERT(n >= 1);
+            SkASSERT(!vec.empty());
             const size_t result_len = (n - 1) / kMaxNodeSize + 1;
             SkASSERT(result_len >= 1);
             SkASSERT(n == 1 || result_len < n);
@@ -354,9 +359,10 @@ std::unique_ptr<SkPDFArray> SkPDFDocument::getAnnotations() {
 
         SkPDFIndirectReference annotationRef = this->reserveRef();
         if (link->fElemId) {
-            int structParentKey = this->createStructParentKeyForElemId(link->fElemId, annotationRef);
-            if (structParentKey != -1) {
-                annotation.insertInt("StructParent", structParentKey);
+            SkPDFParentTreeKey structParentKey =
+                    this->createStructParentKeyForElemId(link->fElemId, annotationRef);
+            if (structParentKey) {
+                annotation.insertInt("StructParent", structParentKey.fValue);
             }
         }
 
@@ -387,9 +393,11 @@ void SkPDFDocument::onEndPage() {
     }
 
     page->insertRef("Contents", SkPDFStreamOut(nullptr, std::move(pageContent), this));
-    // The StructParents unique identifier for each page is just its
-    // 0-based page index.
-    page->insertInt("StructParents", SkToInt(this->currentPageIndex()));
+    if (SkPDFParentTreeKey structParentsKey = fPageDevice->structParentsKey()) {
+        page->insertInt("StructParents", structParentsKey.fValue);
+        this->setContentStreamRefForStructParentsKey(structParentsKey,
+                                                     SkPDFStructTree::kPageContentStreamRef);
+    }
 
     // Tabs is PDF 1.5, but setting it checks an accessibility box.
     page->insertName("Tabs", "S");
@@ -511,7 +519,7 @@ static sk_sp<SkData> SkSrgbIcm() {
         "\214\363\31\363\247\3644\364\302\365P\365\336\366m\366\373\367\212"
         "\370\31\370\250\3718\371\307\372W\372\347\373w\374\7\374\230\375)\375"
         "\272\376K\376\334\377m\377\377";
-    const size_t kProfileLength = 3212;
+    constexpr size_t kProfileLength = 3212;
     static_assert(kProfileLength == sizeof(kProfile) - 1, "");
     return SkData::MakeWithoutCopy(kProfile, kProfileLength);
 }
@@ -551,26 +559,38 @@ const SkMatrix& SkPDFDocument::currentPageTransform() const {
     return fPageDevice->initialTransform();
 }
 
-SkPDFStructTree::Mark SkPDFDocument::createMarkForElemId(int elemId) {
+SkPDFStructTree::Mark SkPDFDocument::createMarkForElemId(int elemId,
+                                                         SkPDFParentTreeKey& structParentsKey)
+{
     // If the mark isn't on a page (like when emitting a Type3 glyph)
     // return a temporary mark not attached to the page or a structure element.
     if (!this->hasCurrentPage()) {
         return SkPDFStructTree::Mark();
     }
-    return fStructTree.createMarkForElemId(elemId, SkToUInt(this->currentPageIndex()));
+    return fStructTree.createMarkForElemId(elemId, SkToUInt(this->currentPageIndex()),
+                                           structParentsKey);
+}
+
+void SkPDFDocument::setContentStreamRefForStructParentsKey(SkPDFParentTreeKey structParentsKey,
+                                                           SkPDFIndirectReference contentStreamRef)
+{
+    fStructTree.setContentStreamRefForStructParentsKey(structParentsKey, contentStreamRef);
 }
 
 void SkPDFDocument::addStructElemTitle(int elemId, SkSpan<const char> title) {
     fStructTree.addStructElemTitle(elemId, std::move(title));
 }
 
-int SkPDFDocument::createStructParentKeyForElemId(int elemId, SkPDFIndirectReference contentItem) {
+SkPDFParentTreeKey SkPDFDocument::createStructParentKeyForElemId(
+        int elemId,
+        SkPDFIndirectReference contentItemRef)
+{
     // Structure elements are tied to pages, so don't emit one if not on a page.
     if (!this->hasCurrentPage()) {
-        return -1;
+        return SkPDFParentTreeKey();
     }
-    return fStructTree.createStructParentKeyForElemId(elemId, contentItem,
-                                                      SkToUInt(this->currentPageIndex()));
+    return fStructTree.createStructParentKeyForElemId(elemId, SkToUInt(this->currentPageIndex()),
+                                                      contentItemRef);
 }
 
 static std::vector<const SkPDFFont*> get_fonts(const SkPDFDocument& canon) {
@@ -696,6 +716,20 @@ sk_sp<SkDocument> SkPDF::MakeDocument(SkWStream* stream, const SkPDF::Metadata& 
     if (meta.fEncodingQuality < 0) {
         meta.fEncodingQuality = 0;
     }
+#if defined(SK_CODEC_ENCODES_JPEG) && defined(SK_CODEC_DECODES_JPEG) && !defined(SK_DISABLE_LEGACY_PDF_JPEG)
+    if (!meta.jpegDecoder) {
+        meta.jpegDecoder = SkPDF::JPEG::Decode;
+    }
+    if (!meta.jpegEncoder) {
+        meta.jpegEncoder = SkPDF::JPEG::Encode;
+    }
+#else
+    if (!meta.jpegDecoder || !meta.jpegEncoder) {
+        if (!meta.allowNoJpegs) {
+            SK_ABORT("Must set both a jpegDecoder and jpegEncoder to create PDFs");
+        }
+    }
+#endif
     return stream ? sk_make_sp<SkPDFDocument>(stream, std::move(meta)) : nullptr;
 }
 

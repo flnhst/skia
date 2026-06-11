@@ -1,4 +1,4 @@
-// Copyright 2019 Google LLC.
+// Copyright 2019 Google LLC
 // Use of this source code is governed by a BSD-style license that can be found in the LICENSE file.
 
 #include "tools/text/SkTextBlobTrace.h"
@@ -79,7 +79,7 @@ void SkTextBlobTrace::DumpTrace(const std::vector<SkTextBlobTrace::Record>& trac
                     (int)font.getEdging(),
                     (int)font.getHinting());
             uint32_t glyphCount = iter.glyphCount();
-            const uint16_t* glyphs = iter.glyphs();
+            const SkGlyphID* glyphs = iter.glyphs();
             for (uint32_t i = 0; i < glyphCount; i++) {
                 SkDebugf("%02X ", glyphs[i]);
             }

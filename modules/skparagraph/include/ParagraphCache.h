@@ -1,9 +1,8 @@
-// Copyright 2019 Google LLC.
+// Copyright 2019 Google LLC
 #ifndef ParagraphCache_DEFINED
 #define ParagraphCache_DEFINED
 
 #include "include/private/base/SkMutex.h"
-#include "src/core/SkLRUCache.h"
 #include <functional>  // std::function
 
 #define PARAGRAPH_CACHE_STATS
@@ -14,8 +13,6 @@ namespace skia {
 namespace textlayout {
 
 class ParagraphImpl;
-class ParagraphCacheKey;
-class ParagraphCacheValue;
 
 class SKPARAGRAPH_API ParagraphCache {
 public:
@@ -32,8 +29,8 @@ public:
         fChecker = std::move(checker);
     }
     void printStatistics();
-    void turnOn(bool value) { fCacheIsOn = value; }
-    int count() { return fLRUCacheMap.count(); }
+    void turnOn(bool value);
+    int count();
 
     bool isPossiblyTextEditing(ParagraphImpl* paragraph);
 
@@ -46,21 +43,9 @@ public:
     mutable SkMutex fParagraphMutex;
     std::function<void(ParagraphImpl* impl, const char*, bool)> fChecker;
 
-    static const int kMaxEntries = 128;
+    struct Cache;
+    std::unique_ptr<Cache> fCache;
 
-    struct KeyHash {
-        uint32_t operator()(const ParagraphCacheKey& key) const;
-    };
-
-    SkLRUCache<ParagraphCacheKey, std::unique_ptr<Entry>, KeyHash> fLRUCacheMap;
-    bool fCacheIsOn;
-    ParagraphCacheValue* fLastCachedValue;
-
-#ifdef PARAGRAPH_CACHE_STATS
-    int fTotalRequests;
-    int fCacheMisses;
-    int fHashMisses; // cache hit but hash table missed
-#endif
 };
 
 }  // namespace textlayout

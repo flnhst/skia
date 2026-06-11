@@ -163,6 +163,7 @@ void ResourceCache::insertResource(Resource* resource,
 Resource* ResourceCache::findAndRefResource(const GraphiteResourceKey& key,
                                             Budgeted budgeted,
                                             Shareable shareable,
+                                            std::string_view label,
                                             const ScratchResourceSet* unavailable) {
     ASSERT_SINGLE_OWNER
 
@@ -202,9 +203,24 @@ Resource* ResourceCache::findAndRefResource(const GraphiteResourceKey& key,
                 resource->setBudgeted(Budgeted::kNo);
                 fBudgetedBytes -= resource->gpuMemorySize();
             }
+            // It is safe to update non-shareable resources when returning them from the cache.
+            resource->setLabel(label);
+            resource->synchronizeBackendLabel();
         } else {
             // Shareable and scratch resources should never be requested as non-budgeted
             SkASSERT(budgeted == Budgeted::kYes);
+
+            // TODO(b/387505250): Eventually, scratch resource label updates will be uniquely
+            // handled per the threadsafe label update model outlined in Resource.h. For now,
+            // maintain original functionality by allowing label reassignment here.
+            if (shareable == Shareable::kScratch) {
+                resource->setLabel(label);
+                resource->synchronizeBackendLabel();
+            } else {
+                // Shareable resource labels should never change after initial creation.
+                SkASSERT(shareable == Shareable::kYes && resource->getLabel() == label);
+            }
+
             resource->setShareable(shareable);
         }
         this->refAndMakeResourceMRU(resource);
@@ -263,11 +279,14 @@ bool ResourceCache::returnResource(Resource* resource) {
     // itself to be reused. On Dawn/WebGPU we use this to remap kXferCpuToGpu buffers asynchronously
     // so that they are already mapped before they come out of the cache again.
     if (resource->shouldDeleteASAP() == Resource::DeleteASAP::kNo &&
-        resource->shareable() == Shareable::kNo) {
+        resource->requiresPrepareForReturnToCache()) {
         // If we get here, we know the usage ref count is 0, so the only way for that to increase
         // again is if the Resource triggers the initial usage ref in the callback.
-        SkDEBUGCODE(bool takeRefActuallyCalled = false;)
-        bool takeRefCalled = resource->prepareForReturnToCache([&] {
+        struct TakeRefContext {
+            Resource* resource;
+            SkDEBUGCODE(bool takeRefActuallyCalled = false;)
+        } ctx = {resource};
+        bool takeRefCalled = resource->prepareForReturnToCache([](void* ctx) {
                 // This adds a usage ref AND removes the return queue ref. When returnResource()
                 // returns true, the cache takes responsibility for releasing the return queue ref.
                 // If we returned false from returnResource() when the resource invokes the takeRef
@@ -290,13 +309,14 @@ bool ResourceCache::returnResource(Resource* resource) {
                 // return false from prepareForReturnToCache() so that cache shutdown is detected.
                 // This can add unnecessary preparation work for resources that won't ever be used,
                 // but keeps the preparation logic relatively simple w/o needing a mutex.
-                resource->initialUsageRef();
-                resource->unrefReturnQueue();
+                auto* context = static_cast<TakeRefContext*>(ctx);
+                context->resource->initialUsageRef();
+                context->resource->unrefReturnQueue();
 
-                SkDEBUGCODE(takeRefActuallyCalled = true;
-            )});
+                SkDEBUGCODE(context->takeRefActuallyCalled = true;
+            )}, &ctx);
 
-        SkASSERT(takeRefCalled == takeRefActuallyCalled);
+        SkASSERT(takeRefCalled == ctx.takeRefActuallyCalled);
         if (takeRefCalled) {
             // Return 'true' here because we've removed the return queue ref already and don't
             // want Resource to try and do that again. But since we added an initial ref, this
@@ -428,6 +448,8 @@ Resource* ResourceCache::processReturnedResource(Resource* resource) {
         }
     }
 
+    this->setResourceUseToken(resource, this->getNextUseToken());
+
     // If the resource was not purgeable at the time the return queue ref was released, the
     // resource should still be in the non-purgeable array from when it was originally given
     // out. Another thread may have already removed the last refs keeping it non-purgeable by
@@ -445,8 +467,6 @@ Resource* ResourceCache::processReturnedResource(Resource* resource) {
     // it non-purgeable at this point. Only the current cache thread has that ability so we can
     // safely continue moving the resource from non-purgeable to purgeable without worrying about
     // another state change.
-    this->setResourceUseToken(resource, this->getNextUseToken());
-
     this->removeFromNonpurgeableArray(resource);
 
     if (resource->shouldDeleteASAP() == Resource::DeleteASAP::kYes) {

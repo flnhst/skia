@@ -10,19 +10,33 @@
 
 #include "src/gpu/graphite/task/Task.h"
 
-#include "include/core/SkImageInfo.h"
-#include "include/core/SkRect.h"
 #include "include/core/SkRefCnt.h"
+#include "include/core/SkSpan.h"
 #include "include/private/base/SkTArray.h"
 #include "src/gpu/graphite/CommandTypes.h"
+#include "src/gpu/graphite/TextureFormatXferFn.h"
 
+#include <cstddef>
+#include <cstdint>
+#include <functional>
 #include <memory>
+
+class SkColorInfo;
+struct SkIRect;
+enum class SkTextureCompressionType;
 
 namespace skgpu::graphite {
 
 class Buffer;
+class Caps;
+class CommandBuffer;
+class Context;
 class Recorder;
+class ResourceProvider;
+class RuntimeEffectDictionary;
+class ScratchResourceManager;
 class TextureProxy;
+class TextureProxyView;
 
 struct MipLevel {
     const void* fPixels = nullptr;
@@ -64,22 +78,69 @@ public:
 };
 
 /**
+ * A set of `MipLevel`s, comprising the source data for an upload operation.
+ *
+ * While preparing the upload source, this class additionally caches some needed information, such
+ * as whether the upload can be done on the host.
+ */
+class UploadSource {
+public:
+    static UploadSource Make(const Caps*,
+                             const TextureProxyView& dstView,
+                             const SkColorInfo& srcColorInfo,
+                             const SkColorInfo& dstColorInfo,
+                             SkSpan<const MipLevel> levels,
+                             const SkIRect& dstRect);
+    static UploadSource MakeCompressed(const Caps*,
+                                       const TextureProxy& textureProxy,
+                                       const void* data,
+                                       size_t dataSize);
+
+    UploadSource(UploadSource&&);
+    UploadSource& operator=(UploadSource&&);
+    ~UploadSource();
+
+    bool isValid() const { return !fLevels.empty(); }
+
+    SkSpan<const MipLevel> levels() const { return fLevels; }
+    bool canUploadOnHost() const { return fCanUploadOnHost; }
+    SkTextureCompressionType compression() const { return fCompression; }
+    size_t bytesPerPixel() const { return fBytesPerPixel; }
+    const std::optional<TextureFormatXferFn>& formatXferFn() const { return fXferFn; }
+
+private:
+    static UploadSource Invalid() { return {}; }
+
+    UploadSource();
+
+    skia_private::STArray<16, MipLevel> fLevels;
+
+    // Whether the texture supports uploads directly from host memory.
+    bool fCanUploadOnHost = false;
+    // Compression type, if any.
+    SkTextureCompressionType fCompression;
+    // Bytes per pixel or block (if compressed)
+    size_t fBytesPerPixel = 0;
+    // Not present for compressed formats
+    std::optional<TextureFormatXferFn> fXferFn;
+};
+
+/**
  * An UploadInstance represents a single set of uploads from a buffer to texture that
  * can be processed in a single command.
  */
 class UploadInstance {
 public:
     static UploadInstance Make(Recorder*,
-                               sk_sp<TextureProxy> targetProxy,
+                               const TextureProxyView& dst,
                                const SkColorInfo& srcColorInfo,
                                const SkColorInfo& dstColorInfo,
-                               SkSpan<const MipLevel> levels,
+                               const UploadSource& source,
                                const SkIRect& dstRect,
                                std::unique_ptr<ConditionalUploadContext>);
     static UploadInstance MakeCompressed(Recorder*,
-                                         sk_sp<TextureProxy> targetProxy,
-                                         const void* data,
-                                         size_t dataSize);
+                                         sk_sp<TextureProxy> textureProxy,
+                                         const UploadSource& source);
 
     static UploadInstance Invalid() { return {}; }
 
@@ -96,6 +157,8 @@ public:
     Task::Status addCommand(Context*, CommandBuffer*, Task::ReplayTargetData) const;
 
 private:
+    friend class UploadTask;
+
     UploadInstance();
     // Copy data is appended directly after the object is created
     UploadInstance(const Buffer*,
@@ -122,10 +185,10 @@ private:
 class UploadList {
 public:
     bool recordUpload(Recorder*,
-                      sk_sp<TextureProxy> targetProxy,
+                      const TextureProxyView& dst,
                       const SkColorInfo& srcColorInfo,
                       const SkColorInfo& dstColorInfo,
-                      SkSpan<const MipLevel> levels,
+                      const UploadSource& source,
                       const SkIRect& dstRect,
                       std::unique_ptr<ConditionalUploadContext>);
 
@@ -152,9 +215,25 @@ public:
 
     Status prepareResources(ResourceProvider*,
                             ScratchResourceManager*,
-                            const RuntimeEffectDictionary*) override;
+                            sk_sp<const RuntimeEffectDictionary>) override;
 
     Status addCommands(Context*, CommandBuffer*, ReplayTargetData) override;
+
+    bool visitProxies(const std::function<bool(const TextureProxy*)>& visitor,
+                      bool readsOnly) override {
+        // Textures being uploaded to are never read from, so skip all visiting unless readsOnly
+        // is false.
+        if (!readsOnly) {
+            for (int32_t i = 0; i < fInstances.size(); ++i) {
+                if (fInstances[i].isValid() && !visitor(fInstances[i].fTextureProxy.get())) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    SK_DUMP_TASKS_CODE(const char* getTaskName() const override { return "Upload Task"; })
 
 private:
     UploadTask(skia_private::TArray<UploadInstance>&&);

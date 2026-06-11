@@ -1,4 +1,4 @@
-// Copyright 2019 Google LLC.
+// Copyright 2019 Google LLC
 #ifndef TextStyle_DEFINED
 #define TextStyle_DEFINED
 
@@ -295,18 +295,14 @@ public:
     bool isPlaceholder() const { return fIsPlaceholder; }
     void setPlaceholder() { fIsPlaceholder = true; }
 
-    void setEdging(SkFont::Edging edging) { fEdging = edging; }
-    SkFont::Edging getEdging() const { return fEdging; }
-
-    void setFontHinting(SkFontHinting hinting) { fFontHinting = hinting; }
-    SkFontHinting getFontHinting() const { return fFontHinting; }
+    void setFontEdging(SkFont::Edging edging) { fEdging = edging; }
+    SkFont::Edging getFontEdging() const { return fEdging; }
 
     void setSubpixel(bool subpixel) { fSubpixel = subpixel; }
     bool getSubpixel() const { return fSubpixel; }
 
-    static int sizeofTextStyle();
-    static int sizeofVectorSkString();
-    static int sizeofVectorInt();
+    void setFontHinting(SkFontHinting hinting) { fHinting = hinting; }
+    SkFontHinting getFontHinting() const { return fHinting; }
 
 private:
     static const skia_private::TArray<SkString>* kDefaultFontFamilies;
@@ -326,6 +322,9 @@ private:
     skia_private::TArray<SkString> fFontFamilies = *kDefaultFontFamilies;
 
     SkScalar fFontSize = 14.0;
+    SkFont::Edging fEdging = SkFont::Edging::kAntiAlias;
+    bool fSubpixel = true;
+    SkFontHinting fHinting = SkFontHinting::kSlight;
     SkScalar fHeight = 1.0;
     bool fHeightOverride = false;
     SkScalar fBaselineShift = 0.0f;

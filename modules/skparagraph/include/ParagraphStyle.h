@@ -1,4 +1,4 @@
-// Copyright 2019 Google LLC.
+// Copyright 2019 Google LLC
 #ifndef ParagraphStyle_DEFINED
 #define ParagraphStyle_DEFINED
 
@@ -87,7 +87,9 @@ struct SKPARAGRAPH_API ParagraphStyle {
                // this->fEllipsisUtf16 == rhs.fEllipsisUtf16 &&
                this->fTextDirection == rhs.fTextDirection && this->fTextAlign == rhs.fTextAlign &&
                this->fDefaultTextStyle == rhs.fDefaultTextStyle &&
-               this->fReplaceTabCharacters == rhs.fReplaceTabCharacters;
+               this->fReplaceTabCharacters == rhs.fReplaceTabCharacters &&
+               this->fFakeMissingFontStyles == rhs.fFakeMissingFontStyles;
+
     }
 
     const StrutStyle& getStrutStyle() const { return fStrutStyle; }
@@ -124,6 +126,9 @@ struct SKPARAGRAPH_API ParagraphStyle {
     bool hintingIsOn() const { return fHintingIsOn; }
     void turnHintingOff() { fHintingIsOn = false; }
 
+    bool fakeMissingFontStyles() const { return fFakeMissingFontStyles; }
+    void setFakeMissingFontStyles(bool value) { fFakeMissingFontStyles = value; }
+
     bool getReplaceTabCharacters() const { return fReplaceTabCharacters; }
     void setReplaceTabCharacters(bool value) { fReplaceTabCharacters = value; }
 
@@ -131,6 +136,9 @@ struct SKPARAGRAPH_API ParagraphStyle {
 
     bool getApplyRoundingHack() const { return fApplyRoundingHack; }
     void setApplyRoundingHack(bool value) { fApplyRoundingHack = value; }
+
+    bool getLetterSpacingByCSSSpec() const { return fLetterSpacingByCSSSpec; }
+    void setLetterSpacingByCSSSpec(bool value) { fLetterSpacingByCSSSpec = value; }
 
 private:
     StrutStyle fStrutStyle;
@@ -144,7 +152,9 @@ private:
     TextHeightBehavior fTextHeightBehavior;
     bool fHintingIsOn;
     bool fReplaceTabCharacters;
+    bool fFakeMissingFontStyles;
     bool fApplyRoundingHack = true;
+    bool fLetterSpacingByCSSSpec = false;
 };
 }  // namespace textlayout
 }  // namespace skia

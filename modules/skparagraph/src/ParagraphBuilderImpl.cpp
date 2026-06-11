@@ -1,4 +1,4 @@
-// Copyright 2019 Google LLC.
+// Copyright 2019 Google LLC
 #include "modules/skparagraph/src/ParagraphBuilderImpl.h"
 
 #include "include/core/SkRefCnt.h"
@@ -11,25 +11,6 @@
 #include "modules/skparagraph/src/ParagraphImpl.h"
 #include "modules/skunicode/include/SkUnicode.h"
 #include "src/core/SkStringUtils.h"
-
-#if !defined(SK_DISABLE_LEGACY_PARAGRAPH_UNICODE)
-#if defined(SK_UNICODE_ICU_IMPLEMENTATION)
-#include "modules/skunicode/include/SkUnicode_icu.h"
-#endif
-
-#if defined(SK_UNICODE_LIBGRAPHEME_IMPLEMENTATION)
-#include "modules/skunicode/include/SkUnicode_libgrapheme.h"
-#endif
-
-#if defined(SK_UNICODE_ICU4X_IMPLEMENTATION)
-#include "modules/skunicode/include/SkUnicode_icu4x.h"
-#endif
-
-#if defined(SK_UNICODE_CLIENT_IMPLEMENTATION)
-#include "modules/skunicode/include/SkUnicode_client.h"
-#endif
-
-#endif  // !defined(SK_DISABLE_LEGACY_PARAGRAPH_UNICODE)
 
 #include <memory>
 #include <utility>
@@ -243,15 +224,6 @@ std::unique_ptr<Paragraph> ParagraphBuilderImpl::Build() {
 
     fUTF8IndexForUTF16Index.clear();
     fUTF16IndexForUTF8Index.clear();
-#if !defined(SK_DISABLE_LEGACY_PARAGRAPH_UNICODE) && defined(SK_UNICODE_CLIENT_IMPLEMENTATION)
-    if (fUsingClientInfo && !fUnicode) {
-        // This is the place where SkUnicode is paired with SkParagraph
-        fUnicode = SkUnicodes::Client::Make(this->getText(),
-                                            std::move(fWordsUtf16),
-                                            std::move(fGraphemeBreaksUtf8),
-                                            std::move(fLineBreaksUtf8));
-    }
-#endif
 
     SkASSERT_RELEASE(fUnicode);
     return std::make_unique<ParagraphImpl>(

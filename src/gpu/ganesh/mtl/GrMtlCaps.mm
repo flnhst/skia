@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 Google Inc.
+ * Copyright 2017 Google LLC
  *
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
@@ -219,15 +219,18 @@ bool GrMtlCaps::getGPUFamily(id<MTLDevice> device, GPUFamily* gpuFamily, int* gr
         // MTLGPUFamilyMac1, MTLGPUFamilyMacCatalyst1, and MTLGPUFamilyMacCatalyst2 are deprecated.
         // However, some MTLGPUFamilyMac1 only hardware is still supported.
         // MacCatalyst families have the same features as Mac, so treat them the same
+        //
+        // Check if an Intel GPU is present; allow targeting issues specific to that hardware.
+        bool isIntel = [device.name containsString:@"Intel"];
         if ([device supportsFamily:MTLGPUFamilyMac2] ||
             [device supportsFamily:(MTLGPUFamily)4002/*MTLGPUFamilyMacCatalyst2*/]) {
-            *gpuFamily = GPUFamily::kMac;
+            *gpuFamily = isIntel ? GPUFamily::kMacIntel : GPUFamily::kMac;
             *group = 2;
             return true;
         }
         if ([device supportsFamily:(MTLGPUFamily)2001/*MTLGPUFamilyMac1*/] ||
             [device supportsFamily:(MTLGPUFamily)4001/*MTLGPUFamilyMacCatalyst1*/]) {
-            *gpuFamily = GPUFamily::kMac;
+            *gpuFamily = isIntel ? GPUFamily::kMacIntel : GPUFamily::kMac;
             *group = 1;
             return true;
         }
@@ -529,9 +532,6 @@ int GrMtlCaps::getRenderTargetSampleCount(int requestedCount, MTLPixelFormat for
 void GrMtlCaps::initShaderCaps() {
     GrShaderCaps* shaderCaps = fShaderCaps.get();
 
-    // Setting this true with the assumption that this cap will eventually mean we support varying
-    // precisions and not just via modifiers.
-    shaderCaps->fUsesPrecisionModifiers = true;
     shaderCaps->fFlatInterpolationSupport = true;
     // We haven't yet tested that using flat attributes perform well.
     shaderCaps->fPreferFlatInterpolation = true;
@@ -545,7 +545,11 @@ void GrMtlCaps::initShaderCaps() {
         shaderCaps->fDualSourceBlendingSupport = false;
     }
 
-    // TODO(skia:8270): Re-enable this once bug 8270 is fixed. Will also need to remove asserts in
+    if (this->isIntel()) {
+        shaderCaps->fVectorClampMinMaxSupport = false;
+    }
+
+    // TODO(skbug.com/40039539): Re-enable this once bug is fixed. Will also need to remove asserts in
     // GrMtlPipelineStateBuilder which assert we aren't using this feature.
 #if 0
     if (this->isIOS()) {
@@ -664,7 +668,7 @@ void GrMtlCaps::initFormatTable() {
         info->fColorTypeInfoCount = 3;
         info->fColorTypeInfos = std::make_unique<ColorTypeInfo[]>(info->fColorTypeInfoCount);
         int ctIdx = 0;
-        // Format: R8Unorm, Surface: kAlpha_8
+        // Format: R8Unorm, Surface: kR_8
         {
             auto& ctInfo = info->fColorTypeInfos[ctIdx++];
             ctInfo.fColorType = GrColorType::kR_8;
@@ -856,7 +860,7 @@ void GrMtlCaps::initFormatTable() {
     {
         info = &fFormatTable[GetFormatIndex(MTLPixelFormatR16Float)];
         info->fFlags = FormatInfo::kAllFlags;
-        info->fColorTypeInfoCount = 1;
+        info->fColorTypeInfoCount = 2;
         info->fColorTypeInfos = std::make_unique<ColorTypeInfo[]>(info->fColorTypeInfoCount);
         int ctIdx = 0;
         // Format: R16Float, Surface: kAlpha_F16
@@ -866,6 +870,12 @@ void GrMtlCaps::initFormatTable() {
             ctInfo.fFlags = ColorTypeInfo::kUploadData_Flag | ColorTypeInfo::kRenderable_Flag;
             ctInfo.fReadSwizzle = skgpu::Swizzle("000r");
             ctInfo.fWriteSwizzle = skgpu::Swizzle("a000");
+        }
+        // Format: R16Float, Surface: kR_F16
+        {
+            auto& ctInfo = info->fColorTypeInfos[ctIdx++];
+            ctInfo.fColorType = GrColorType::kR_F16;
+            ctInfo.fFlags = ColorTypeInfo::kUploadData_Flag | ColorTypeInfo::kRenderable_Flag;
         }
     }
 
@@ -905,7 +915,7 @@ void GrMtlCaps::initFormatTable() {
         } else {
             info->fFlags = FormatInfo::kTexturable_Flag | FormatInfo::kRenderable_Flag;
         }
-        info->fColorTypeInfoCount = 1;
+        info->fColorTypeInfoCount = 2;
         info->fColorTypeInfos = std::make_unique<ColorTypeInfo[]>(info->fColorTypeInfoCount);
         int ctIdx = 0;
         // Format: R16Unorm, Surface: kAlpha_16
@@ -915,6 +925,12 @@ void GrMtlCaps::initFormatTable() {
             ctInfo.fFlags = ColorTypeInfo::kUploadData_Flag | ColorTypeInfo::kRenderable_Flag;
             ctInfo.fReadSwizzle = skgpu::Swizzle("000r");
             ctInfo.fWriteSwizzle = skgpu::Swizzle("a000");
+        }
+        // Format: R16Unorm, Surface: kR16_unorm
+        {
+            auto& ctInfo = info->fColorTypeInfos[ctIdx++];
+            ctInfo.fColorType = GrColorType::kR_16;
+            ctInfo.fFlags = ColorTypeInfo::kUploadData_Flag | ColorTypeInfo::kRenderable_Flag;
         }
     }
 
@@ -1006,6 +1022,7 @@ void GrMtlCaps::initFormatTable() {
     this->setColorType(GrColorType::kRGBA_8888,         { MTLPixelFormatRGBA8Unorm });
     this->setColorType(GrColorType::kRGBA_8888_SRGB,    { MTLPixelFormatRGBA8Unorm_sRGB });
     this->setColorType(GrColorType::kRGB_888x,          { MTLPixelFormatRGBA8Unorm });
+    this->setColorType(GrColorType::kR_8,               { MTLPixelFormatR8Unorm });
     this->setColorType(GrColorType::kRG_88,             { MTLPixelFormatRG8Unorm });
     this->setColorType(GrColorType::kBGRA_8888,         { MTLPixelFormatBGRA8Unorm });
     this->setColorType(GrColorType::kRGBA_1010102,      { MTLPixelFormatRGB10A2Unorm });
@@ -1015,6 +1032,7 @@ void GrMtlCaps::initFormatTable() {
     this->setColorType(GrColorType::kRGB_101010x,       { MTLPixelFormatRGB10A2Unorm });
     this->setColorType(GrColorType::kGray_8,            { MTLPixelFormatR8Unorm });
     this->setColorType(GrColorType::kAlpha_F16,         { MTLPixelFormatR16Float });
+    this->setColorType(GrColorType::kR_F16,             { MTLPixelFormatR16Float });
     this->setColorType(GrColorType::kRGBA_F16,          { MTLPixelFormatRGBA16Float });
     this->setColorType(GrColorType::kRGBA_F16_Clamped,  { MTLPixelFormatRGBA16Float });
     this->setColorType(GrColorType::kRGB_F16F16F16x,    { MTLPixelFormatRGBA16Float });
@@ -1186,7 +1204,7 @@ GrCaps::SupportedRead GrMtlCaps::onSupportedReadPixelsColorType(
     SkTextureCompressionType compression = GrBackendFormatToCompressionType(srcBackendFormat);
     if (compression != SkTextureCompressionType::kNone) {
 #ifdef SK_BUILD_FOR_IOS
-        // Reading back to kRGB_888x doesn't work on Metal/iOS (skbug.com/9839)
+        // Reading back to kRGB_888x doesn't work on Metal/iOS (skbug.com/40041169)
         return { GrColorType::kUnknown, 0 };
 #else
         return { SkTextureCompressionTypeIsOpaque(compression) ? GrColorType::kRGB_888x
@@ -1277,6 +1295,7 @@ std::vector<GrTest::TestFormatColorTypeCombination> GrMtlCaps::getTestingCombina
 #ifdef SK_BUILD_FOR_MAC
         { GrColorType::kRGBA_8888,        GrBackendFormats::MakeMtl(MTLPixelFormatBC1_RGBA)        },
 #endif
+        { GrColorType::kR_8,              GrBackendFormats::MakeMtl(MTLPixelFormatR8Unorm)         },
         { GrColorType::kRG_88,            GrBackendFormats::MakeMtl(MTLPixelFormatRG8Unorm)        },
         { GrColorType::kBGRA_8888,        GrBackendFormats::MakeMtl(MTLPixelFormatBGRA8Unorm)      },
         { GrColorType::kRGBA_1010102,     GrBackendFormats::MakeMtl(MTLPixelFormatRGB10A2Unorm)    },
@@ -1284,6 +1303,7 @@ std::vector<GrTest::TestFormatColorTypeCombination> GrMtlCaps::getTestingCombina
         { GrColorType::kRGB_101010x,      GrBackendFormats::MakeMtl(MTLPixelFormatRGB10A2Unorm)    },
         { GrColorType::kGray_8,           GrBackendFormats::MakeMtl(MTLPixelFormatR8Unorm)         },
         { GrColorType::kAlpha_F16,        GrBackendFormats::MakeMtl(MTLPixelFormatR16Float)        },
+        { GrColorType::kR_F16,            GrBackendFormats::MakeMtl(MTLPixelFormatR16Float)        },
         { GrColorType::kRGBA_F16,         GrBackendFormats::MakeMtl(MTLPixelFormatRGBA16Float)     },
         { GrColorType::kRGBA_F16_Clamped, GrBackendFormats::MakeMtl(MTLPixelFormatRGBA16Float)     },
         { GrColorType::kRGB_F16F16F16x,   GrBackendFormats::MakeMtl(MTLPixelFormatRGBA16Float)     },

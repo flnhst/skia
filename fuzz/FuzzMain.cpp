@@ -18,13 +18,18 @@
 #include "include/core/SkStream.h"
 #include "include/core/SkSurface.h"
 #include "include/core/SkTextBlob.h"
-#include "include/encode/SkPngEncoder.h"
 #include "src/core/SkOSFile.h"
 #include "src/core/SkReadBuffer.h"
 #include "src/utils/SkOSPath.h"
 #include "tools/ToolUtils.h"
 #include "tools/flags/CommandLineFlags.h"
 #include "tools/fonts/FontToolUtils.h"
+
+#if defined(SK_CODEC_DECODES_PNG_WITH_RUST)
+#include "include/encode/SkPngRustEncoder.h"
+#else
+#include "include/encode/SkPngEncoder.h"
+#endif
 
 #include <iostream>
 #include <map>
@@ -49,6 +54,7 @@ static constexpr char g_type_message[] = "How to interpret --bytes, one of:\n"
                                          "color_deserialize\n"
                                          "colrv1\n"
                                          "filter_fuzz (equivalent to Chrome's filter_fuzz_stub)\n"
+                                         "hdr_agtm\n"
                                          "image_decode\n"
                                          "image_decode_incremental\n"
                                          "image_mode\n"
@@ -86,6 +92,7 @@ static void fuzz_api(const sk_sp<SkData>&, const SkString& name);
 static void fuzz_color_deserialize(const sk_sp<SkData>&);
 static void fuzz_colrv1(const sk_sp<SkData>&);
 static void fuzz_filter_fuzz(const sk_sp<SkData>&);
+static void fuzz_hdr_agtm(const sk_sp<SkData>& data);
 static void fuzz_image_decode(const sk_sp<SkData>&);
 static void fuzz_image_decode_incremental(const sk_sp<SkData>&);
 static void fuzz_img(const sk_sp<SkData>&, uint8_t, uint8_t);
@@ -194,6 +201,10 @@ static int fuzz_file(const SkString& path, SkString type) {
     }
     if (type.equals("filter_fuzz")) {
         fuzz_filter_fuzz(std::move(bytes));
+        return 0;
+    }
+    if (type.equals("hdr_agtm")) {
+        fuzz_hdr_agtm(std::move(bytes));
         return 0;
     }
     if (type.equals("image_decode")) {
@@ -322,6 +333,9 @@ static std::map<std::string, std::string> cf_api_map = {
     {"api_svg_canvas", "SVGCanvas"},
     {"cubic_quad_roots", "CubicQuadRoots"},
     {"jpeg_encoder", "JPEGEncoder"},
+    // TODO(https://crbug.com/459478411): Add OSS-ClusterFuzz coverage of Rust
+    // PNG encoder.  (And also decoder?  See earlier discussion about these map
+    // entries at https://review.skia.org/1091836/comment/db7930d5_d2e1f030/)
     {"png_encoder", "PNGEncoder"},
     {"skia_pathop_fuzzer", "LegacyChromiumPathop"},
     {"webp_encoder", "WEBPEncoder"}
@@ -458,7 +472,11 @@ static void fuzz_api(const sk_sp<SkData>& data, const SkString& name) {
 static void dump_png(const SkBitmap& bitmap) {
     if (!FLAGS_dump.isEmpty()) {
         SkFILEWStream file(FLAGS_dump[0]);
+#if defined(SK_CODEC_DECODES_PNG_WITH_RUST)
+        SkPngRustEncoder::Encode(&file, bitmap.pixmap(), {});
+#else
         SkPngEncoder::Encode(&file, bitmap.pixmap(), {});
+#endif
         SkDebugf("Dumped to %s\n", FLAGS_dump[0]);
     }
 }
@@ -803,6 +821,13 @@ void FuzzImageFilterDeserialize(const uint8_t *data, size_t size);
 static void fuzz_filter_fuzz(const sk_sp<SkData>& data) {
     FuzzImageFilterDeserialize(data->bytes(), data->size());
     SkDebugf("[terminated] filter_fuzz didn't crash!\n");
+}
+
+void FuzzHdrAgtm(const uint8_t* data, size_t size);
+
+static void fuzz_hdr_agtm(const sk_sp<SkData>& data) {
+    FuzzHdrAgtm(data->bytes(), data->size());
+    SkDebugf("[terminated] Done HdrAgtm!\n");
 }
 
 void FuzzSkMeshSpecification(const uint8_t *fuzzData, size_t fuzzSize);

@@ -1,4 +1,4 @@
-// Copyright 2019 Google LLC.
+// Copyright 2019 Google LLC
 #ifndef FontCollection_DEFINED
 #define FontCollection_DEFINED
 
@@ -41,7 +41,9 @@ public:
     skia_private::TArray<sk_sp<SkTypeface>> findTypefaces(const skia_private::TArray<SkString>& familyNames, SkFontStyle fontStyle);
     skia_private::TArray<sk_sp<SkTypeface>> findTypefaces(const skia_private::TArray<SkString>& familyNames, SkFontStyle fontStyle, const std::optional<FontArguments>& fontArgs);
 
-    sk_sp<SkTypeface> defaultFallback(SkUnichar unicode, SkFontStyle fontStyle, const SkString& locale);
+    sk_sp<SkTypeface> defaultFallback(SkUnichar unicode, const std::vector<SkString>& families,
+                                      SkFontStyle fontStyle, const SkString& locale,
+                                      const std::optional<FontArguments>& fontArgs);
     sk_sp<SkTypeface> defaultEmojiFallback(SkUnichar emojiStart, SkFontStyle fontStyle, const SkString& locale);
     sk_sp<SkTypeface> defaultFallback();
 
@@ -60,29 +62,13 @@ private:
 
     sk_sp<SkTypeface> matchTypeface(const SkString& familyName, SkFontStyle fontStyle);
 
-    struct SKPARAGRAPH_API FamilyKey {
-        FamilyKey(const skia_private::TArray<SkString>& familyNames, SkFontStyle style, const std::optional<FontArguments>& args);
+    sk_sp<SkTypeface> cloneTypeface(const sk_sp<SkTypeface>& typeface, const FontArguments& args);
 
-        FamilyKey();
-
-        virtual ~FamilyKey();
-
-        skia_private::TArray<SkString> fFamilyNames;
-        SkFontStyle fFontStyle;
-        std::optional<FontArguments> fFontArguments;
-
-        bool operator==(const FamilyKey& other) const;
-
-        struct SKPARAGRAPH_API Hasher {
-            Hasher();
-            virtual ~Hasher();
-
-            size_t operator()(const FamilyKey& key) const;
-        };
-    };
-
+    struct FaceCache;
+    std::unique_ptr<FaceCache> fFaceCache;
+    struct VariationCache;
+    std::unique_ptr<VariationCache> fVariationCache;
     bool fEnableFontFallback;
-    skia_private::THashMap<FamilyKey, skia_private::TArray<sk_sp<SkTypeface>>, FamilyKey::Hasher> fTypefaces;
     sk_sp<SkFontMgr> fDefaultFontManager;
     sk_sp<SkFontMgr> fAssetFontManager;
     sk_sp<SkFontMgr> fDynamicFontManager;
