@@ -11,6 +11,7 @@
 #include "include/core/SkPoint.h"
 #include "include/core/SkRect.h"
 #include "include/core/SkTypes.h"
+#include "include/core/SkString.h"
 #include "include/gpu/GpuTypes.h"
 
 #include <memory>
@@ -63,13 +64,13 @@ public:
 
     InsertStatus() : fValue(kSuccess) {}
     /*implicit*/ InsertStatus(V v) : fValue(v) {}
-    InsertStatus(V v, std::string message) : fValue(v), fMessage(std::move(message)) {}
+    InsertStatus(V v, SkString message) : fValue(v), fMessage(std::move(message)) {}
 
     operator InsertStatus::V() const {
         return fValue;
     }
 
-    const std::string& message() const { return fMessage; }
+    const SkString& message() const { return fMessage; }
 
     // Assist migration from old bool return value of insertRecording; kSuccess is true,
     // all other error statuses are false.
@@ -82,7 +83,7 @@ public:
 
 private:
     V fValue;
-    std::string fMessage;
+    SkString fMessage;
 };
 
 /**

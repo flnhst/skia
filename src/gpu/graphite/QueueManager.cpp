@@ -213,7 +213,7 @@ InsertStatus QueueManager::addRecording(const InsertRecordingInfo& info, Context
                        "Adding Recording commands to the CommandBuffer has failed");
         RETURN_FAIL_IF(
                 true,
-                InsertStatus(InsertStatus::kAsyncShaderCompilesFailed, std::move(failureMsg)),
+                InsertStatus(InsertStatus::kAsyncShaderCompilesFailed, SkString(failureMsg)),
                 "Async pipeline compiles failed, unable to add Recording commands");
     }
 
