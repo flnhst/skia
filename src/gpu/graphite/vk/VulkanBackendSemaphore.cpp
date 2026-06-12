@@ -41,7 +41,7 @@ static const VulkanBackendSemaphoreData* get_and_cast_data(const BackendSemaphor
 }
 
 namespace BackendSemaphores {
-BackendSemaphore MakeVulkan(VkSemaphore sem) {
+SK_API BackendSemaphore MakeVulkan(VkSemaphore sem) {
     return BackendSemaphorePriv::Make(skgpu::BackendApi::kVulkan, VulkanBackendSemaphoreData(sem));
 }
 

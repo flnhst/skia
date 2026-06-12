@@ -22,7 +22,7 @@
 
 namespace skgpu::graphite::ContextFactory {
 
-std::unique_ptr<Context> MakeVulkan(const VulkanBackendContext& backendContext,
+SK_API std::unique_ptr<Context> MakeVulkan(const VulkanBackendContext& backendContext,
                                     const ContextOptions& options) {
     sk_sp<SharedContext> sharedContext = VulkanSharedContext::Make(backendContext, options);
     if (!sharedContext) {
