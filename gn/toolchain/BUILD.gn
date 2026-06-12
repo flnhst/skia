@@ -101,6 +101,12 @@ template("msvc_toolchain") {
       link = "\"$bin/link.exe\""
     }
 
+    runtime_lib_flags = ""
+
+    if (is_debug) {
+      runtime_lib_flags += "/MDd"
+    }
+
     tool("asm") {
       _ml = "ml"
       if (toolchain_target_cpu == "x64") {
@@ -119,7 +125,7 @@ template("msvc_toolchain") {
       pdbname = "{{target_out_dir}}/{{label_name}}_c.pdb"
 
       # Label names may have spaces so pdbname must be quoted.
-      command = "$cc_wrapper $cl /nologo /showIncludes /FC {{defines}} {{include_dirs}} {{cflags}} $cl_m32_flag {{cflags_c}} /c {{source}} /Fo{{output}} /Fd\"$pdbname\""
+      command = "$cc_wrapper $cl /nologo /showIncludes /FC {{defines}} {{include_dirs}} {{cflags}} $runtime_lib_flags $cl_m32_flag {{cflags_c}} /c {{source}} /Fo{{output}} /Fd\"$pdbname\""
       depsformat = "msvc"
       outputs = [
         "{{source_out_dir}}/{{target_output_name}}.{{source_name_part}}.obj",
@@ -132,7 +138,7 @@ template("msvc_toolchain") {
       pdbname = "{{target_out_dir}}/{{label_name}}_c.pdb"
 
       # Label names may have spaces so pdbname must be quoted.
-      command = "$cc_wrapper $cl /nologo /showIncludes /FC {{defines}} {{include_dirs}} {{cflags}} $cl_m32_flag {{cflags_cc}} /c {{source}} /Fo{{output}} /Fd\"$pdbname\""
+      command = "$cc_wrapper $cl /nologo /showIncludes /FC {{defines}} {{include_dirs}} {{cflags}} $runtime_lib_flags $cl_m32_flag {{cflags_cc}} /c {{source}} /Fo{{output}} /Fd\"$pdbname\""
       depsformat = "msvc"
       outputs = [
         "{{source_out_dir}}/{{target_output_name}}.{{source_name_part}}.obj",
@@ -167,7 +173,7 @@ template("msvc_toolchain") {
       pdbname = "${dllname}.pdb"
       rspfile = "${dllname}.rsp"
 
-      command = "$link /nologo /IMPLIB:$libname /DLL /OUT:$dllname /PDB:$pdbname @$rspfile"
+      command = "$link /nologo /IMPLIB:$libname $runtime_lib_flags /DLL /OUT:$dllname /PDB:$pdbname @$rspfile"
       outputs = [
         dllname,
         libname,
